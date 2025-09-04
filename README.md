@@ -4,8 +4,8 @@
 [![NuGet](https://img.shields.io/nuget/v/SimpleDataEngine.svg)](https://www.nuget.org/packages/SimpleDataEngine/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Downloads](https://img.shields.io/nuget/dt/SimpleDataEngine.svg)](https://www.nuget.org/packages/SimpleDataEngine/)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/yourusername/SimpleDataEngine)
-[![GitHub stars](https://img.shields.io/github/stars/yourusername/SimpleDataEngine.svg?style=social&label=Star)](https://github.com/yourusername/SimpleDataEngine)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/BurakCelebi-61/SimpleDataEngine)
+[![GitHub stars](https://img.shields.io/github/stars/BurakCelebi-61/SimpleDataEngine.svg?style=social&label=Star)](https://github.com/yourusername/SimpleDataEngine)
 
 > **Comprehensive .NET data management engine** with built-in **repository pattern**, **performance monitoring**, **audit logging**, **health checks**, **data validation**, and **backup system**. Perfect for enterprise applications, microservices, and rapid prototyping.
 
@@ -1471,25 +1471,25 @@ public partial class MainWindow : Window
 ## 📚 **Additional Resources**
 
 ### **Documentation Links**
-- 📖 **[Wiki Documentation](https://github.com/BurakCelebi/SimpleDataEngine/wiki)** - Comprehensive guides and tutorials
+- 📖 **[Wiki Documentation](https://github.com/BurakCelebi-61/SimpleDataEngine/wiki)** - Comprehensive guides and tutorials
 - 🎥 **[Video Tutorials](https://www.youtube.com/playlist?list=YOUR_PLAYLIST)** - Step-by-step video guides
-- 📝 **[API Documentation](https://BurakCelebi.github.io/SimpleDataEngine/api/)** - Complete API reference
-- 🏗️ **[Architecture Guide](https://github.com/BurakCelebi/SimpleDataEngine/wiki/Architecture)** - Detailed architecture documentation
-- 🔧 **[Configuration Reference](https://github.com/BurakCelebi/SimpleDataEngine/wiki/Configuration)** - All configuration options
+- 📝 **[API Documentation](https://BurakCelebi-61.github.io/SimpleDataEngine/api/)** - Complete API reference
+- 🏗️ **[Architecture Guide](https://github.com/BurakCelebi-61/SimpleDataEngine/wiki/Architecture)** - Detailed architecture documentation
+- 🔧 **[Configuration Reference](https://github.com/BurakCelebi-61/SimpleDataEngine/wiki/Configuration)** - All configuration options
 
 ### **Community & Support**
-- 💬 **[GitHub Discussions](https://github.com/BurakCelebi/SimpleDataEngine/discussions)** - Community Q&A
-- 🐛 **[Issue Tracker](https://github.com/BurakCelebi/SimpleDataEngine/issues)** - Bug reports and feature requests
+- 💬 **[GitHub Discussions](https://github.com/BurakCelebi-61/SimpleDataEngine/discussions)** - Community Q&A
+- 🐛 **[Issue Tracker](https://github.com/BurakCelebi-61/SimpleDataEngine/issues)** - Bug reports and feature requests
 - 📧 **[Mailing List](mailto:simpledataengine@googlegroups.com)** - Announcements and updates
 - 💬 **[Discord Server](https://discord.gg/simpledataengine)** - Real-time community chat
 - 📱 **[Twitter](https://twitter.com/simpledataengine)** - Latest news and tips
 
 ### **Sample Projects**
-- 🛒 **[E-Commerce Demo](https://github.com/BurakCelebi/SimpleDataEngine-ECommerce)** - Complete e-commerce application
-- 📊 **[Analytics Dashboard](https://github.com/BurakCelebi/SimpleDataEngine-Analytics)** - Data analytics and reporting
-- 🏥 **[Healthcare Management](https://github.com/BurakCelebi/SimpleDataEngine-Healthcare)** - Patient management system
-- 🎮 **[Game Development](https://github.com/BurakCelebi/SimpleDataEngine-Gaming)** - Game save and statistics management
-- 🏭 **[IoT Data Collection](https://github.com/BurakCelebi/SimpleDataEngine-IoT)** - IoT sensor data management
+- 🛒 **[E-Commerce Demo](https://github.com/BurakCelebi-61/SimpleDataEngine-ECommerce)** - Complete e-commerce application
+- 📊 **[Analytics Dashboard](https://github.com/BurakCelebi-61/SimpleDataEngine-Analytics)** - Data analytics and reporting
+- 🏥 **[Healthcare Management](https://github.com/BurakCelebi-61/SimpleDataEngine-Healthcare)** - Patient management system
+- 🎮 **[Game Development](https://github.com/BurakCelebi-61/SimpleDataEngine-Gaming)** - Game save and statistics management
+- 🏭 **[IoT Data Collection](https://github.com/BurakCelebi-61/SimpleDataEngine-IoT)** - IoT sensor data management
 
 ### **Learning Path**
 1. **🚀 Quick Start** - Follow the basic tutorial
@@ -1503,9 +1503,9 @@ public partial class MainWindow : Window
 ## 📞 **Support & Community**
 
 ### **Getting Help**
-- 📚 Check the **[FAQ](https://github.com/BurakCelebi/SimpleDataEngine/wiki/FAQ)** first
-- 🔍 Search existing **[GitHub Issues](https://github.com/BurakCelebi/SimpleDataEngine/issues)**
-- 💬 Ask questions in **[GitHub Discussions](https://github.com/BurakCelebi/SimpleDataEngine/discussions)**
+- 📚 Check the **[FAQ](https://github.com/BurakCelebi-61/SimpleDataEngine/wiki/FAQ)** first
+- 🔍 Search existing **[GitHub Issues](https://github.com/BurakCelebi-61/SimpleDataEngine/issues)**
+- 💬 Ask questions in **[GitHub Discussions](https://github.com/BurakCelebi-61/SimpleDataEngine/discussions)**
 - 📧 Email support: **support@simpledataengine.com**
 
 ### **Contributing**
@@ -1521,8 +1521,8 @@ We welcome contributions! See our **[Contributing Guide](CONTRIBUTING.md)** for 
 Support SimpleDataEngine development:
 
 [![Become a Patron](https://img.shields.io/badge/Patreon-Become%20a%20Patron-red.svg)](https://www.patreon.com/simpledataengine)
-[![Sponsor on GitHub](https://img.shields.io/badge/GitHub-Sponsor-pink.svg)](https://github.com/sponsors/BurakCelebi)
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-yellow.svg)](https://www.buymeacoffee.com/BurakCelebi)
+[![Sponsor on GitHub](https://img.shields.io/badge/GitHub-Sponsor-pink.svg)](https://github.com/sponsors/BurakCelebi-61)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-yellow.svg)](https://www.buymeacoffee.com/BurakCelebi-61)
 
 ## 📜 **License**
 
@@ -1558,13 +1558,13 @@ SOFTWARE.
 
 ### ⭐ **Star this repository if SimpleDataEngine helps your project!** ⭐
 
-[![GitHub stars](https://img.shields.io/github/stars/BurakCelebi/SimpleDataEngine.svg?style=social&label=Star)](https://github.com/BurakCelebi/SimpleDataEngine)
-[![GitHub forks](https://img.shields.io/github/forks/BurakCelebi/SimpleDataEngine.svg?style=social&label=Fork)](https://github.com/BurakCelebi/SimpleDataEngine/fork)
-[![GitHub watchers](https://img.shields.io/github/watchers/yourusername/SimpleDataEngine.svg?style=social&label=Watch)](https://github.com/BurakCelebi/SimpleDataEngine)
+[![GitHub stars](https://img.shields.io/github/stars/BurakCelebi-61/SimpleDataEngine.svg?style=social&label=Star)](https://github.com/BurakCelebi-61/SimpleDataEngine)
+[![GitHub forks](https://img.shields.io/github/forks/BurakCelebi-61/SimpleDataEngine.svg?style=social&label=Fork)](https://github.com/BurakCelebi-61/SimpleDataEngine/fork)
+[![GitHub watchers](https://img.shields.io/github/watchers/yourusername/SimpleDataEngine.svg?style=social&label=Watch)](https://github.com/BurakCelebi-61/SimpleDataEngine)
 
 **Follow us for updates:**
 [![Twitter Follow](https://img.shields.io/twitter/follow/simpledataengine.svg?style=social)](https://twitter.com/simpledataengine)
-[![GitHub followers](https://img.shields.io/github/followers/BurakCelebi.svg?style=social&label=Follow)](https://github.com/BurakCelebi)
+[![GitHub followers](https://img.shields.io/github/followers/BurakCelebi-61.svg?style=social&label=Follow)](https://github.com/BurakCelebi-61)
 
 ---
 
@@ -1572,6 +1572,6 @@ SOFTWARE.
 
 *SimpleDataEngine - Empowering developers with enterprise-grade data management*
 
-**🚀 [Get Started Now](https://github.com/BurakCelebi/SimpleDataEngine#-quick-start-guide) | 📚 [Read the Docs](https://github.com/BurakCelebi/SimpleDataEngine/wiki) | 💬 [Join Community](https://github.com/BurakCelebi/SimpleDataEngine/discussions)**
+**🚀 [Get Started Now](https://github.com/BurakCelebi-61/SimpleDataEngine#-quick-start-guide) | 📚 [Read the Docs](https://github.com/BurakCelebi-61/SimpleDataEngine/wiki) | 💬 [Join Community](https://github.com/BurakCelebi-61/SimpleDataEngine/discussions)**
 
 </div>
