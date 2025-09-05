@@ -6,10 +6,4 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Compile Remove="Backup\**" />
-    <EmbeddedResource Remove="Backup\**" />
-    <None Remove="Backup\**" />
-  </ItemGroup>
-
 </Project>
