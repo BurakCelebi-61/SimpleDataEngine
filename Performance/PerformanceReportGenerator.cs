@@ -1,223 +1,271 @@
 ﻿using System.Diagnostics;
+using System.Text.Json;
 
 namespace SimpleDataEngine.Performance
 {
     /// <summary>
     /// Performance report generator
     /// </summary>
-    public static class PerformanceReportGenerator
+    /// <summary>
+    /// Performance report generator
+    /// </summary>
+    public class PerformanceReportGenerator
     {
+        private readonly List<PerformanceResult> _results;
+        private readonly object _lock = new object();
+
+        public PerformanceReportGenerator()
+        {
+            _results = new List<PerformanceResult>();
+        }
+
         /// <summary>
-        /// Generates a comprehensive performance report using static PerformanceTracker
+        /// Add performance result
         /// </summary>
-        /// <param name="period">Report period</param>
-        /// <returns>Performance report</returns>
-        public static PerformanceReport GenerateReport(TimeSpan? period = null)
+        public void AddResult(PerformanceResult result)
         {
-            var reportPeriod = period ?? TimeSpan.FromHours(24);
-            var metrics = PerformanceTracker.GetMetrics(reportPeriod);
+            if (result == null) return;
 
-            var report = new PerformanceReport
+            lock (_lock)
             {
-                GeneratedAt = DateTime.Now,
-                ReportPeriod = reportPeriod,
-                TotalOperations = metrics.Count,
-                SuccessfulOperations = metrics.Count(m => m.Success),
-                FailedOperationsCount = metrics.Count(m => !m.Success) // Fixed property name
-            };
-
-            if (report.TotalOperations > 0)
-            {
-                report.OverallSuccessRate = (double)report.SuccessfulOperations / report.TotalOperations * 100;
-                report.AverageOperationTimeMs = metrics.Average(m => m.Duration.TotalMilliseconds);
-
-                var timeSpan = reportPeriod.TotalSeconds;
-                report.OperationsPerSecond = timeSpan > 0 ? report.TotalOperations / timeSpan : 0;
-            }
-
-            // Generate operation statistics using static methods
-            GenerateOperationStatistics(report, metrics, reportPeriod);
-
-            // Generate category statistics
-            GenerateCategoryStatistics(report, metrics);
-
-            // Get slowest operations using static methods
-            report.SlowOperations = PerformanceTracker.GetSlowestOperations(10, reportPeriod);
-
-            // Get failed operations using static methods
-            report.FailedOperations = PerformanceTracker.GetFailedOperations(reportPeriod);
-
-            // Generate resource statistics
-            GenerateResourceStatistics(report, metrics);
-
-            // Generate alerts
-            GenerateAlerts(report, metrics);
-
-            return report;
-        }
-
-        private static void GenerateOperationStatistics(PerformanceReport report,
-            List<PerformanceMetric> metrics, TimeSpan period)
-        {
-            var operations = metrics.Select(m => m.Operation).Distinct();
-
-            foreach (var operation in operations)
-            {
-                var stats = PerformanceTracker.GetOperationStatistics(operation, period);
-                report.OperationStats[operation] = stats;
+                _results.Add(result);
             }
         }
 
-        private static void GenerateCategoryStatistics(PerformanceReport report, List<PerformanceMetric> metrics)
+        /// <summary>
+        /// Add multiple results
+        /// </summary>
+        public void AddResults(IEnumerable<PerformanceResult> results)
         {
-            var categories = metrics.GroupBy(m => m.Category);
+            if (results == null) return;
 
-            foreach (var categoryGroup in categories)
+            lock (_lock)
             {
-                var categoryMetrics = categoryGroup.ToList();
-                var successfulOps = categoryMetrics.Count(m => m.Success);
+                _results.AddRange(results);
+            }
+        }
 
-                var categoryStats = new CategoryStatistics
+        /// <summary>
+        /// Generate summary report
+        /// </summary>
+        public PerformanceSummary GenerateSummary(TimeSpan? timeWindow = null)
+        {
+            lock (_lock)
+            {
+                var filteredResults = _results.AsEnumerable();
+
+                if (timeWindow.HasValue)
                 {
-                    Category = categoryGroup.Key,
-                    TotalOperations = categoryMetrics.Count,
-                    SuccessfulOperations = successfulOps,
-                    FailedOperations = categoryMetrics.Count - successfulOps,
-                    SuccessRate = categoryMetrics.Count > 0 ? (double)successfulOps / categoryMetrics.Count * 100 : 0,
-                    AverageResponseTime = categoryMetrics.Count > 0 ? categoryMetrics.Average(m => m.Duration.TotalMilliseconds) : 0,
-                    TotalMemoryUsed = categoryMetrics.Sum(m => m.MemoryUsed),
-                    TopOperations = categoryMetrics
-                        .GroupBy(m => m.Operation)
-                        .OrderByDescending(g => g.Count())
-                        .Take(5)
-                        .Select(g => g.Key)
-                        .ToList()
+                    var cutoff = DateTime.UtcNow - timeWindow.Value;
+                    filteredResults = filteredResults.Where(r => r.EndTime >= cutoff);
+                }
+
+                var resultsList = filteredResults.ToList();
+
+                if (!resultsList.Any())
+                {
+                    return new PerformanceSummary
+                    {
+                        TotalOperations = 0,
+                        TimeWindow = timeWindow,
+                        GeneratedAt = DateTime.UtcNow
+                    };
+                }
+
+                var summary = new PerformanceSummary
+                {
+                    TotalOperations = resultsList.Count,
+                    AverageDuration = TimeSpan.FromMilliseconds(resultsList.Average(r => r.DurationMs)),
+                    MinDuration = TimeSpan.FromMilliseconds(resultsList.Min(r => r.DurationMs)),
+                    MaxDuration = TimeSpan.FromMilliseconds(resultsList.Max(r => r.DurationMs)),
+                    MedianDuration = CalculateMedianDuration(resultsList),
+                    TotalDuration = TimeSpan.FromMilliseconds(resultsList.Sum(r => r.DurationMs)),
+                    TimeWindow = timeWindow,
+                    GeneratedAt = DateTime.UtcNow
                 };
 
-                report.CategoryStats[categoryGroup.Key] = categoryStats;
+                // Calculate percentiles
+                var sortedDurations = resultsList.Select(r => r.DurationMs).OrderBy(d => d).ToList();
+                summary.P95Duration = TimeSpan.FromMilliseconds(CalculatePercentile(sortedDurations, 95));
+                summary.P99Duration = TimeSpan.FromMilliseconds(CalculatePercentile(sortedDurations, 99));
+
+                // Group by operation
+                summary.OperationSummaries = resultsList
+                    .GroupBy(r => r.OperationName)
+                    .Select(g => new OperationSummary
+                    {
+                        OperationName = g.Key,
+                        Count = g.Count(),
+                        AverageDuration = TimeSpan.FromMilliseconds(g.Average(r => r.DurationMs)),
+                        MinDuration = TimeSpan.FromMilliseconds(g.Min(r => r.DurationMs)),
+                        MaxDuration = TimeSpan.FromMilliseconds(g.Max(r => r.DurationMs)),
+                        TotalDuration = TimeSpan.FromMilliseconds(g.Sum(r => r.DurationMs))
+                    })
+                    .OrderByDescending(os => os.TotalDuration)
+                    .ToList();
+
+                // Performance category breakdown
+                summary.CategoryBreakdown = resultsList
+                    .GroupBy(r => r.Category)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => new CategoryStats
+                        {
+                            Count = g.Count(),
+                            Percentage = (double)g.Count() / resultsList.Count * 100,
+                            AverageDuration = TimeSpan.FromMilliseconds(g.Average(r => r.DurationMs))
+                        }
+                    );
+
+                return summary;
             }
         }
 
-        private static void GenerateResourceStatistics(PerformanceReport report, List<PerformanceMetric> metrics)
+        /// <summary>
+        /// Generate detailed report as JSON
+        /// </summary>
+        public async Task<string> GenerateDetailedReportAsync(TimeSpan? timeWindow = null)
         {
-            if (!metrics.Any())
-            {
-                report.Resources = new ResourceStatistics();
-                return;
-            }
+            var summary = GenerateSummary(timeWindow);
 
-            report.Resources = new ResourceStatistics
+            var report = new
             {
-                CurrentMemoryUsage = GC.GetTotalMemory(false),
-                PeakMemoryUsage = metrics.Max(m => m.MemoryUsed),
-                AverageMemoryUsage = (long)metrics.Average(m => m.MemoryUsed),
-                GarbageCollections = GC.CollectionCount(0) + GC.CollectionCount(1) + GC.CollectionCount(2),
-                ActiveThreads = metrics.Select(m => m.ThreadId).Distinct().Count(),
-                SystemUpTime = DateTime.Now - Process.GetCurrentProcess().StartTime
+                Summary = summary,
+                TopSlowestOperations = GetTopSlowestOperations(10, timeWindow),
+                RecentOperations = GetRecentOperations(50),
+                PerformanceTrends = CalculatePerformanceTrends(timeWindow)
             };
+
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            return JsonSerializer.Serialize(report, options);
         }
 
-        private static void GenerateAlerts(PerformanceReport report, List<PerformanceMetric> metrics)
+        /// <summary>
+        /// Get top slowest operations
+        /// </summary>
+        public List<PerformanceResult> GetTopSlowestOperations(int count = 10, TimeSpan? timeWindow = null)
         {
-            var config = Configuration.ConfigManager.Current;
-
-            // Check for high error rate
-            if (report.TotalOperations > 0 && report.OverallSuccessRate < 95)
+            lock (_lock)
             {
-                report.Alerts.Add(new PerformanceAlert
-                {
-                    Level = PerformanceAlert.AlertLevel.Warning,
-                    Title = "High Error Rate",
-                    Message = $"Overall success rate is {report.OverallSuccessRate:F2}% (below 95%)",
-                    Category = "Reliability",
-                    DetectedAt = DateTime.Now,
-                    Data = new Dictionary<string, object>
-                    {
-                        ["SuccessRate"] = report.OverallSuccessRate,
-                        ["FailedOperationsCount"] = report.FailedOperationsCount
-                    }
-                });
-            }
+                var filteredResults = _results.AsEnumerable();
 
-            // Check for slow average response time
-            if (report.AverageOperationTimeMs > config.Performance.SlowQueryThresholdMs)
-            {
-                report.Alerts.Add(new PerformanceAlert
+                if (timeWindow.HasValue)
                 {
-                    Level = PerformanceAlert.AlertLevel.Warning,
-                    Title = "Slow Average Response Time",
-                    Message = $"Average response time is {report.AverageOperationTimeMs:F2}ms (above {config.Performance.SlowQueryThresholdMs}ms)",
-                    Category = "Performance",
-                    DetectedAt = DateTime.Now,
-                    Data = new Dictionary<string, object>
-                    {
-                        ["AverageResponseTime"] = report.AverageOperationTimeMs,
-                        ["Threshold"] = config.Performance.SlowQueryThresholdMs
-                    }
-                });
-            }
-
-            // Check for memory usage
-            var memoryMB = report.Resources.CurrentMemoryUsage / (1024 * 1024);
-            if (memoryMB > 500)
-            {
-                var level = memoryMB > 1000 ? PerformanceAlert.AlertLevel.Critical : PerformanceAlert.AlertLevel.Warning;
-                report.Alerts.Add(new PerformanceAlert
-                {
-                    Level = level,
-                    Title = "High Memory Usage",
-                    Message = $"Current memory usage is {memoryMB:F2} MB",
-                    Category = "Resources",
-                    DetectedAt = DateTime.Now,
-                    Data = new Dictionary<string, object>
-                    {
-                        ["MemoryUsageMB"] = memoryMB,
-                        ["CurrentMemoryUsage"] = report.Resources.CurrentMemoryUsage
-                    }
-                });
-            }
-
-            // Check for operations with consistently poor performance
-            foreach (var opStat in report.OperationStats.Values)
-            {
-                if (opStat.TotalCalls >= 10 && opStat.SuccessRate < 90)
-                {
-                    report.Alerts.Add(new PerformanceAlert
-                    {
-                        Level = PerformanceAlert.AlertLevel.Warning,
-                        Title = "Unreliable Operation",
-                        Message = $"Operation '{opStat.Operation}' has {opStat.SuccessRate:F2}% success rate",
-                        Category = "Reliability",
-                        DetectedAt = DateTime.Now,
-                        Data = new Dictionary<string, object>
-                        {
-                            ["Operation"] = opStat.Operation,
-                            ["SuccessRate"] = opStat.SuccessRate,
-                            ["TotalCalls"] = opStat.TotalCalls,
-                            ["FailedCalls"] = opStat.FailedCalls
-                        }
-                    });
+                    var cutoff = DateTime.UtcNow - timeWindow.Value;
+                    filteredResults = filteredResults.Where(r => r.EndTime >= cutoff);
                 }
 
-                if (opStat.AverageResponseTime > config.Performance.SlowQueryThresholdMs * 2)
+                return filteredResults
+                    .OrderByDescending(r => r.DurationMs)
+                    .Take(count)
+                    .ToList();
+            }
+        }
+
+        /// <summary>
+        /// Get recent operations
+        /// </summary>
+        public List<PerformanceResult> GetRecentOperations(int count = 50)
+        {
+            lock (_lock)
+            {
+                return _results
+                    .OrderByDescending(r => r.EndTime)
+                    .Take(count)
+                    .ToList();
+            }
+        }
+
+        /// <summary>
+        /// Clear old results
+        /// </summary>
+        public void ClearOldResults(TimeSpan maxAge)
+        {
+            lock (_lock)
+            {
+                var cutoff = DateTime.UtcNow - maxAge;
+                _results.RemoveAll(r => r.EndTime < cutoff);
+            }
+        }
+
+        /// <summary>
+        /// Clear all results
+        /// </summary>
+        public void ClearAll()
+        {
+            lock (_lock)
+            {
+                _results.Clear();
+            }
+        }
+
+        private TimeSpan CalculateMedianDuration(List<PerformanceResult> results)
+        {
+            var sortedDurations = results.Select(r => r.DurationMs).OrderBy(d => d).ToList();
+            var count = sortedDurations.Count;
+
+            if (count % 2 == 0)
+            {
+                var median = (sortedDurations[count / 2 - 1] + sortedDurations[count / 2]) / 2;
+                return TimeSpan.FromMilliseconds(median);
+            }
+            else
+            {
+                return TimeSpan.FromMilliseconds(sortedDurations[count / 2]);
+            }
+        }
+
+        private double CalculatePercentile(List<double> sortedValues, double percentile)
+        {
+            if (!sortedValues.Any()) return 0;
+
+            var index = (percentile / 100.0) * (sortedValues.Count - 1);
+            var lower = (int)Math.Floor(index);
+            var upper = (int)Math.Ceiling(index);
+
+            if (lower == upper)
+            {
+                return sortedValues[lower];
+            }
+
+            var weight = index - lower;
+            return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+        }
+
+        private Dictionary<string, object> CalculatePerformanceTrends(TimeSpan? timeWindow)
+        {
+            // Performance trend calculation logic
+            var trends = new Dictionary<string, object>();
+
+            lock (_lock)
+            {
+                var filteredResults = _results.AsEnumerable();
+                if (timeWindow.HasValue)
                 {
-                    report.Alerts.Add(new PerformanceAlert
-                    {
-                        Level = PerformanceAlert.AlertLevel.Critical,
-                        Title = "Very Slow Operation",
-                        Message = $"Operation '{opStat.Operation}' averages {opStat.AverageResponseTime:F2}ms",
-                        Category = "Performance",
-                        DetectedAt = DateTime.Now,
-                        Data = new Dictionary<string, object>
-                        {
-                            ["Operation"] = opStat.Operation,
-                            ["AverageResponseTime"] = opStat.AverageResponseTime,
-                            ["MaxResponseTime"] = opStat.MaxResponseTime,
-                            ["TotalCalls"] = opStat.TotalCalls
-                        }
-                    });
+                    var cutoff = DateTime.UtcNow - timeWindow.Value;
+                    filteredResults = filteredResults.Where(r => r.EndTime >= cutoff);
+                }
+
+                var resultsList = filteredResults.ToList();
+                if (resultsList.Count >= 2)
+                {
+                    var first50Percent = resultsList.Take(resultsList.Count / 2);
+                    var last50Percent = resultsList.Skip(resultsList.Count / 2);
+
+                    var firstAvg = first50Percent.Average(r => r.DurationMs);
+                    var lastAvg = last50Percent.Average(r => r.DurationMs);
+
+                    trends["PerformanceChange"] = ((lastAvg - firstAvg) / firstAvg) * 100;
+                    trends["Trend"] = lastAvg > firstAvg ? "Deteriorating" : "Improving";
                 }
             }
+
+            return trends;
         }
     }
 }

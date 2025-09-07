@@ -1,14 +1,20 @@
-﻿namespace SimpleDataEngine.Storage.Hierarchical.Models
+﻿using static SimpleDataEngine.Storage.Hierarchical.Models.EntityMetadata;
+
+namespace SimpleDataEngine.Storage.Hierarchical.Models
 {
     /// <summary>
     /// Entity-specific index
     /// </summary>
-    public class EntityIndex
+    public partial class EntityIndex
     {
         /// <summary>
         /// Entity type name
         /// </summary>
         public string EntityType { get; set; }
+        public string EntityName { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime LastModified { get; set; } = DateTime.UtcNow;
+        public long? TotalRecords { get; set; }
 
         /// <summary>
         /// Last update timestamp
@@ -29,11 +35,13 @@
         /// Index statistics
         /// </summary>
         public IndexStatistics Statistics { get; set; } = new();
-
+        public List<SegmentMetadata> Segments { get; set; } = new();
+        public EntitySchema Schema { get; set; } = new();
         /// <summary>
         /// Cached query results
         /// </summary>
         public Dictionary<string, CachedQuery> QueryCache { get; set; } = new();
+        
 
         /// <summary>
         /// Property index information
@@ -60,6 +68,20 @@
             public long IndexedQueries { get; set; }
         }
 
+        public class EntitySchema
+        {
+            public string Version { get; set; } = "1.0.0";
+            public List<PropertyInfo> Properties { get; set; } = new();
+            public DateTime LastUpdated { get; set; } = DateTime.Now;
+
+            public class PropertyInfo
+            {
+                public string Name { get; set; }
+                public string Type { get; set; }
+                public bool IsIndexed { get; set; }
+                public bool IsRequired { get; set; }
+            }
+        }
         /// <summary>
         /// Cached query information
         /// </summary>

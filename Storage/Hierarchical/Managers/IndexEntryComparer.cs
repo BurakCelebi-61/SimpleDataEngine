@@ -1,4 +1,6 @@
-﻿namespace SimpleDataEngine.Storage.Hierarchical.Managers
+﻿using SimpleDataEngine.Storage.Hierarchical.Models;
+
+namespace SimpleDataEngine.Storage.Hierarchical.Managers
 {
     /// <summary>
     /// Index entry comparer for intersection operations

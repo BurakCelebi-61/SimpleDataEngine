@@ -4,7 +4,7 @@
     /// Segment data structure
     /// </summary>
     /// <typeparam name="T">Entity type</typeparam>
-    public class SegmentData<T>
+    public partial class SegmentData<T>
     {
         /// <summary>
         /// Segment header information

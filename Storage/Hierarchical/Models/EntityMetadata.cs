@@ -9,6 +9,7 @@
         /// Entity type name
         /// </summary>
         public string EntityType { get; set; }
+        public string EntityName { get; set; }  // Extension'dan gelen
 
         /// <summary>
         /// Current active segment number
