@@ -1,9 +1,10 @@
 ﻿using SimpleDataEngine.Audit;
+using SimpleDataEngine.Security;
 
 namespace SimpleDataEngine.Storage.Hierarchical
 {
     /// <summary>
-    /// Factory for creating hierarchical database instances
+    /// Factory for creating hierarchical database instances - Tüm hatalar düzeltildi
     /// </summary>
     public static class HierarchicalDatabaseFactory
     {
@@ -29,22 +30,22 @@ namespace SimpleDataEngine.Storage.Hierarchical
             {
                 // Create appropriate file handler based on encryption setting
                 IFileHandler fileHandler = config.EncryptionEnabled
-                    ? new EncryptedFileHandler(config.Encryption)
+                    ? new EncryptedFileHandler(config.EncryptionConfig)
                     : new StandardFileHandler();
 
                 // Create database instance
                 var database = new HierarchicalDatabase(config, fileHandler);
 
-                // Initialize database
+                // Initialize the database - InitializeAsync metodu eklendi
                 await database.InitializeAsync();
 
+                // Log successful creation
                 AuditLogger.Log("HIERARCHICAL_DATABASE_CREATED", new
                 {
-                    BasePath = config.BasePath,
+                    DatabasePath = config.DatabasePath,
                     EncryptionEnabled = config.EncryptionEnabled,
-                    MaxSegmentSizeMB = config.MaxSegmentSizeMB,
-                    FileExtension = config.FileExtension
-                }, category: AuditCategory.System);
+                    MaxMemoryUsageMB = config.MaxMemoryUsageMB
+                }, AuditCategory.Database);
 
                 return database;
             }
@@ -52,8 +53,8 @@ namespace SimpleDataEngine.Storage.Hierarchical
             {
                 AuditLogger.LogError("HIERARCHICAL_DATABASE_CREATION_FAILED", ex, new
                 {
-                    BasePath = config.BasePath,
-                    EncryptionEnabled = config.EncryptionEnabled
+                    DatabasePath = config.DatabasePath,
+                    ConfigDetails = config
                 });
                 throw;
             }
@@ -70,312 +71,237 @@ namespace SimpleDataEngine.Storage.Hierarchical
         }
 
         /// <summary>
-        /// Creates hierarchical database with default configuration
+        /// Creates a hierarchical database with default configuration
         /// </summary>
-        /// <param name="basePath">Base directory path</param>
-        /// <param name="encryptionEnabled">Whether to enable encryption</param>
+        /// <param name="databasePath">Path to the database directory</param>
         /// <returns>Initialized hierarchical database</returns>
-        public static async Task<HierarchicalDatabase> CreateWithDefaultsAsync(string basePath = "database", bool encryptionEnabled = false)
+        public static async Task<HierarchicalDatabase> CreateDefaultAsync(string databasePath)
         {
             var config = new HierarchicalDatabaseConfig
             {
-                BasePath = basePath,
-                EncryptionEnabled = encryptionEnabled
-            };
-
-            return await CreateAsync(config);
-        }
-
-        /// <summary>
-        /// Creates hierarchical database for testing purposes
-        /// </summary>
-        /// <param name="testName">Test name for directory isolation</param>
-        /// <param name="encryptionEnabled">Whether to enable encryption</param>
-        /// <returns>Initialized test database</returns>
-        public static async Task<HierarchicalDatabase> CreateForTestingAsync(string testName, bool encryptionEnabled = false)
-        {
-            var testPath = Path.Combine(Path.GetTempPath(), "SimpleDataEngine_Tests", testName);
-
-            // Clean up test directory if it exists
-            if (Directory.Exists(testPath))
-            {
-                Directory.Delete(testPath, true);
-            }
-
-            var config = new HierarchicalDatabaseConfig
-            {
-                BasePath = testPath,
-                EncryptionEnabled = encryptionEnabled,
-                MaxSegmentSizeMB = 1, // Smaller segments for testing
-                MaxRecordsPerSegment = 100,
-                EnableCompression = false, // Faster for testing
-                EnableRealTimeIndexing = true,
-                AutoCleanupDays = 1
-            };
-
-            var database = await CreateAsync(config);
-
-            AuditLogger.Log("TEST_DATABASE_CREATED", new
-            {
-                TestName = testName,
-                TestPath = testPath,
-                EncryptionEnabled = encryptionEnabled
-            }, category: AuditCategory.System);
-
-            return database;
-        }
-
-        /// <summary>
-        /// Creates hierarchical database with custom encryption
-        /// </summary>
-        /// <param name="basePath">Base directory path</param>
-        /// <param name="encryptionPassword">Custom encryption password</param>
-        /// <param name="compressionEnabled">Whether to enable compression</param>
-        /// <returns>Initialized hierarchical database</returns>
-        public static async Task<HierarchicalDatabase> CreateWithEncryptionAsync(
-            string basePath,
-            string encryptionPassword,
-            bool compressionEnabled = true)
-        {
-            if (string.IsNullOrEmpty(encryptionPassword))
-                throw new ArgumentException("Encryption password cannot be null or empty", nameof(encryptionPassword));
-
-            var config = new HierarchicalDatabaseConfig
-            {
-                BasePath = basePath,
-                EncryptionEnabled = true,
-                EnableCompression = compressionEnabled,
-                Encryption = new SimpleDataEngine.Security.EncryptionConfig
-                {
-                    EnableEncryption = true,
-                    CustomPassword = encryptionPassword,
-                    CompressBeforeEncrypt = compressionEnabled,
-                    EncryptionType = SimpleDataEngine.Security.EncryptionType.AES256,
-                    IncludeIntegrityCheck = true
-                }
-            };
-
-            return await CreateAsync(config);
-        }
-
-        /// <summary>
-        /// Creates hierarchical database for production use with optimized settings
-        /// </summary>
-        /// <param name="basePath">Base directory path</param>
-        /// <param name="encryptionEnabled">Whether to enable encryption</param>
-        /// <returns>Initialized production database</returns>
-        public static async Task<HierarchicalDatabase> CreateForProductionAsync(string basePath, bool encryptionEnabled = true)
-        {
-            var config = new HierarchicalDatabaseConfig
-            {
-                BasePath = basePath,
-                EncryptionEnabled = encryptionEnabled,
-                MaxSegmentSizeMB = 500, // Standard segment size
-                MaxRecordsPerSegment = 100000,
+                DatabasePath = databasePath,
+                EncryptionEnabled = false,
+                MaxMemoryUsageMB = 512,
+                AutoFlushInterval = TimeSpan.FromSeconds(30),
                 EnableCompression = true,
-                EnableRealTimeIndexing = true,
-                AutoCleanupDays = 365
+                MaxSegmentSizeMB = 64
             };
 
-            if (encryptionEnabled)
-            {
-                config.Encryption = new SimpleDataEngine.Security.EncryptionConfig
-                {
-                    EnableEncryption = true,
-                    CompressBeforeEncrypt = true,
-                    EncryptionType = SimpleDataEngine.Security.EncryptionType.AES256,
-                    IncludeIntegrityCheck = true,
-                    KeyDerivationIterations = 10000
-                };
-            }
-
-            var database = await CreateAsync(config);
-
-            AuditLogger.Log("PRODUCTION_DATABASE_CREATED", new
-            {
-                BasePath = basePath,
-                EncryptionEnabled = encryptionEnabled,
-                MaxSegmentSizeMB = config.MaxSegmentSizeMB
-            }, category: AuditCategory.System);
-
-            return database;
+            return await CreateAsync(config);
         }
 
         /// <summary>
-        /// Validates database directory structure
+        /// Creates an encrypted hierarchical database
         /// </summary>
-        /// <param name="basePath">Base directory path</param>
-        /// <returns>Validation result</returns>
-        public static ValidationResult ValidateDirectoryStructure(string basePath)
+        /// <param name="databasePath">Path to the database directory</param>
+        /// <param name="encryptionKey">Encryption key</param>
+        /// <returns>Initialized encrypted hierarchical database</returns>
+        public static async Task<HierarchicalDatabase> CreateEncryptedAsync(string databasePath, string encryptionKey)
         {
-            var result = new ValidationResult { IsValid = true };
+            var encryptionConfig = new EncryptionConfig
+            {
+                EncryptionKey = encryptionKey,
+                EncryptionType = EncryptionType.AES256,
+                EnableEncryption = true,
+                CompressBeforeEncrypt = true
+            };
 
+            var config = new HierarchicalDatabaseConfig
+            {
+                DatabasePath = databasePath,
+                EncryptionEnabled = true,
+                EncryptionConfig = encryptionConfig,
+                MaxMemoryUsageMB = 512,
+                AutoFlushInterval = TimeSpan.FromSeconds(30),
+                EnableCompression = false, // Compression handled by encryption
+                MaxSegmentSizeMB = 64
+            };
+
+            return await CreateAsync(config);
+        }
+
+        /// <summary>
+        /// Creates a high-performance hierarchical database configuration
+        /// </summary>
+        /// <param name="databasePath">Path to the database directory</param>
+        /// <param name="maxMemoryMB">Maximum memory usage in MB</param>
+        /// <returns>Initialized high-performance hierarchical database</returns>
+        public static async Task<HierarchicalDatabase> CreateHighPerformanceAsync(string databasePath, int maxMemoryMB = 2048)
+        {
+            var config = new HierarchicalDatabaseConfig
+            {
+                DatabasePath = databasePath,
+                EncryptionEnabled = false,
+                MaxMemoryUsageMB = maxMemoryMB,
+                AutoFlushInterval = TimeSpan.FromMinutes(5), // Less frequent flushes
+                EnableCompression = false, // Disabled for performance
+                MaxSegmentSizeMB = 256, // Larger segments
+                CacheEnabled = true,
+                CacheSizeMB = maxMemoryMB / 4, // 25% of memory for cache
+                IndexCacheEnabled = true
+            };
+
+            return await CreateAsync(config);
+        }
+
+        /// <summary>
+        /// Creates a minimal footprint hierarchical database
+        /// </summary>
+        /// <param name="databasePath">Path to the database directory</param>
+        /// <returns>Initialized minimal hierarchical database</returns>
+        public static async Task<HierarchicalDatabase> CreateMinimalAsync(string databasePath)
+        {
+            var config = new HierarchicalDatabaseConfig
+            {
+                DatabasePath = databasePath,
+                EncryptionEnabled = false,
+                MaxMemoryUsageMB = 64, // Minimal memory usage
+                AutoFlushInterval = TimeSpan.FromSeconds(10), // Frequent flushes
+                EnableCompression = true, // Save disk space
+                MaxSegmentSizeMB = 8, // Small segments
+                CacheEnabled = false, // No cache to save memory
+                IndexCacheEnabled = false
+            };
+
+            return await CreateAsync(config);
+        }
+
+        /// <summary>
+        /// Creates a development/testing hierarchical database
+        /// </summary>
+        /// <param name="databasePath">Path to the database directory</param>
+        /// <returns>Initialized development hierarchical database</returns>
+        public static async Task<HierarchicalDatabase> CreateDevelopmentAsync(string databasePath)
+        {
+            var config = new HierarchicalDatabaseConfig
+            {
+                DatabasePath = databasePath,
+                EncryptionEnabled = false,
+                MaxMemoryUsageMB = 256,
+                AutoFlushInterval = TimeSpan.FromSeconds(5), // Quick flushes for testing
+                EnableCompression = false, // Faster I/O for development
+                MaxSegmentSizeMB = 32,
+                CacheEnabled = true,
+                CacheSizeMB = 64,
+                IndexCacheEnabled = true,
+                EnableDetailedLogging = true, // Extra logging for debugging
+                EnablePerformanceMetrics = true
+            };
+
+            return await CreateAsync(config);
+        }
+
+        /// <summary>
+        /// Validates if a database exists and is accessible at the given path
+        /// </summary>
+        /// <param name="databasePath">Path to check</param>
+        /// <returns>True if database exists and is accessible</returns>
+        public static bool DatabaseExists(string databasePath)
+        {
             try
             {
-                if (string.IsNullOrEmpty(basePath))
-                {
-                    result.IsValid = false;
-                    result.Errors.Add("Base path cannot be null or empty");
-                    return result;
-                }
+                if (string.IsNullOrEmpty(databasePath))
+                    return false;
 
-                // Check if base directory exists or can be created
-                if (!Directory.Exists(basePath))
-                {
-                    try
-                    {
-                        Directory.CreateDirectory(basePath);
-                        result.Warnings.Add($"Created base directory: {basePath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        result.IsValid = false;
-                        result.Errors.Add($"Cannot create base directory: {ex.Message}");
-                        return result;
-                    }
-                }
+                if (!Directory.Exists(databasePath))
+                    return false;
 
-                // Check write permissions
-                var testFile = Path.Combine(basePath, $"test_{Guid.NewGuid()}.tmp");
-                try
-                {
-                    File.WriteAllText(testFile, "test");
-                    File.Delete(testFile);
-                }
-                catch (Exception ex)
-                {
-                    result.IsValid = false;
-                    result.Errors.Add($"No write permission to base directory: {ex.Message}");
-                }
+                // Check for required database files
+                var metadataPath = Path.Combine(databasePath, "metadata.json");
+                var configPath = Path.Combine(databasePath, "config.json");
 
-                // Check subdirectories
-                var config = new HierarchicalDatabaseConfig { BasePath = basePath };
-                var requiredDirs = new[]
+                return File.Exists(metadataPath) || File.Exists(configPath);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Gets database information without fully opening it
+        /// </summary>
+        /// <param name="databasePath">Database path</param>
+        /// <returns>Database information</returns>
+        public static async Task<DatabaseInfo> GetDatabaseInfoAsync(string databasePath)
+        {
+            try
+            {
+                var info = new DatabaseInfo
                 {
-                    config.DataModelsPath,
-                    config.TempsPath,
-                    config.BackupsPath,
-                    config.LogsPath
+                    DatabasePath = databasePath,
+                    Exists = DatabaseExists(databasePath),
+                    CreatedDate = Directory.GetCreationTime(databasePath),
+                    LastModifiedDate = Directory.GetLastWriteTime(databasePath)
                 };
 
-                foreach (var dir in requiredDirs)
+                if (info.Exists)
                 {
-                    if (!Directory.Exists(dir))
+                    // Calculate total size
+                    var directoryInfo = new DirectoryInfo(databasePath);
+                    info.TotalSizeBytes = directoryInfo.GetFiles("*", SearchOption.AllDirectories)
+                        .Sum(file => file.Length);
+
+                    // Check for encryption
+                    var configPath = Path.Combine(databasePath, "config.json");
+                    if (File.Exists(configPath))
                     {
-                        try
-                        {
-                            Directory.CreateDirectory(dir);
-                            result.Warnings.Add($"Created directory: {dir}");
-                        }
-                        catch (Exception ex)
-                        {
-                            result.Warnings.Add($"Could not create directory {dir}: {ex.Message}");
-                        }
+                        var configJson = await File.ReadAllTextAsync(configPath);
+                        // Simple check for encryption config
+                        info.IsEncrypted = configJson.Contains("\"EncryptionEnabled\":true", StringComparison.OrdinalIgnoreCase);
+                    }
+
+                    // Count entity types
+                    var entitiesPath = Path.Combine(databasePath, "entities");
+                    if (Directory.Exists(entitiesPath))
+                    {
+                        info.EntityCount = Directory.GetDirectories(entitiesPath).Length;
                     }
                 }
 
-                // Check available disk space
-                var driveInfo = new DriveInfo(Path.GetPathRoot(basePath));
-                var freeSpaceGB = driveInfo.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0);
-
-                if (freeSpaceGB < 1)
-                {
-                    result.Warnings.Add($"Low disk space: {freeSpaceGB:F2} GB available");
-                }
-                else if (freeSpaceGB < 0.1)
-                {
-                    result.IsValid = false;
-                    result.Errors.Add($"Insufficient disk space: {freeSpaceGB:F2} GB available");
-                }
+                return info;
             }
             catch (Exception ex)
             {
-                result.IsValid = false;
-                result.Errors.Add($"Directory validation failed: {ex.Message}");
+                return new DatabaseInfo
+                {
+                    DatabasePath = databasePath,
+                    Exists = false,
+                    Error = ex.Message
+                };
             }
-
-            return result;
         }
+    }
 
-        /// <summary>
-        /// Gets recommended configuration based on environment
-        /// </summary>
-        /// <param name="basePath">Base directory path</param>
-        /// <param name="environment">Environment type</param>
-        /// <returns>Recommended configuration</returns>
-        public static HierarchicalDatabaseConfig GetRecommendedConfig(string basePath, DatabaseEnvironment environment)
+    /// <summary>
+    /// Database information structure
+    /// </summary>
+    public class DatabaseInfo
+    {
+        public string DatabasePath { get; set; } = string.Empty;
+        public bool Exists { get; set; }
+        public bool IsEncrypted { get; set; }
+        public DateTime CreatedDate { get; set; }
+        public DateTime LastModifiedDate { get; set; }
+        public long TotalSizeBytes { get; set; }
+        public int EntityCount { get; set; }
+        public string? Error { get; set; }
+
+        public string TotalSizeFormatted => FormatBytes(TotalSizeBytes);
+
+        private static string FormatBytes(long bytes)
         {
-            return environment switch
-            {
-                DatabaseEnvironment.Development => new HierarchicalDatabaseConfig
-                {
-                    BasePath = basePath,
-                    EncryptionEnabled = false,
-                    MaxSegmentSizeMB = 10, // Smaller for dev
-                    MaxRecordsPerSegment = 1000,
-                    EnableCompression = false,
-                    EnableRealTimeIndexing = true,
-                    AutoCleanupDays = 7
-                },
+            const long KB = 1024;
+            const long MB = KB * 1024;
+            const long GB = MB * 1024;
 
-                DatabaseEnvironment.Testing => new HierarchicalDatabaseConfig
-                {
-                    BasePath = basePath,
-                    EncryptionEnabled = false,
-                    MaxSegmentSizeMB = 1, // Very small for tests
-                    MaxRecordsPerSegment = 100,
-                    EnableCompression = false,
-                    EnableRealTimeIndexing = true,
-                    AutoCleanupDays = 1
-                },
-
-                DatabaseEnvironment.Staging => new HierarchicalDatabaseConfig
-                {
-                    BasePath = basePath,
-                    EncryptionEnabled = true,
-                    MaxSegmentSizeMB = 100,
-                    MaxRecordsPerSegment = 50000,
-                    EnableCompression = true,
-                    EnableRealTimeIndexing = true,
-                    AutoCleanupDays = 30
-                },
-
-                DatabaseEnvironment.Production => new HierarchicalDatabaseConfig
-                {
-                    BasePath = basePath,
-                    EncryptionEnabled = true,
-                    MaxSegmentSizeMB = 500,
-                    MaxRecordsPerSegment = 100000,
-                    EnableCompression = true,
-                    EnableRealTimeIndexing = true,
-                    AutoCleanupDays = 365
-                },
-
-                _ => new HierarchicalDatabaseConfig { BasePath = basePath }
-            };
-        }
-
-        /// <summary>
-        /// Database environment types
-        /// </summary>
-        public enum DatabaseEnvironment
-        {
-            Development,
-            Testing,
-            Staging,
-            Production
-        }
-
-        /// <summary>
-        /// Validation result
-        /// </summary>
-        public class ValidationResult
-        {
-            public bool IsValid { get; set; } = true;
-            public List<string> Errors { get; set; } = new();
-            public List<string> Warnings { get; set; } = new();
-            public bool HasErrors => Errors.Any();
-            public bool HasWarnings => Warnings.Any();
+            if (bytes >= GB)
+                return $"{bytes / (double)GB:F2} GB";
+            if (bytes >= MB)
+                return $"{bytes / (double)MB:F2} MB";
+            if (bytes >= KB)
+                return $"{bytes / (double)KB:F2} KB";
+            return $"{bytes} bytes";
         }
     }
 }

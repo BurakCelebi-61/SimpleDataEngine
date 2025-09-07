@@ -1,292 +1,95 @@
-﻿using System.Text.Json;
+﻿using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace SimpleDataEngine.Audit
 {
     /// <summary>
-    /// File-based audit target implementation
+    /// File-based audit target - long to int conversion hatası düzeltildi
     /// </summary>
-    public class FileAuditTarget : IAuditTarget, IStatisticsProvider, IDisposable
+    public class FileAuditTarget : IAuditTarget, ISyncAuditTarget, IFlushable, IAsyncFlushable, IQueryableAuditTarget, IStatisticsProvider, IDisposable
     {
         private readonly string _logDirectory;
-        private readonly string _logFilePattern;
-        private readonly SemaphoreSlim _writeLock;
+        private readonly string _fileNameFormat;
+        private readonly int _maxFileSizeMB;
+        private readonly int _maxFiles;
+        private readonly bool _compressOldLogs;
+        private readonly object _lock = new object();
+        private readonly ConcurrentQueue<AuditLogEntry> _pendingEntries = new ConcurrentQueue<AuditLogEntry>();
         private readonly JsonSerializerOptions _jsonOptions;
-        private long _totalEntries;
-        private long _errorCount;
-        private long _warningCount;
-        private DateTime _firstEntry = DateTime.MaxValue;
-        private DateTime _lastEntry = DateTime.MinValue;
-        private bool _disposed;
+        private readonly Timer _flushTimer;
+        private bool _disposed = false;
 
-        public FileAuditTarget(string logDirectory = null)
+        public FileAuditTarget(string? logDirectory = null, AuditLoggerOptions? options = null)
         {
-            _logDirectory = logDirectory ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
-            _logFilePattern = "audit_{0:yyyy-MM-dd}.log";
-            _writeLock = new SemaphoreSlim(1, 1);
+            var opts = options ?? new AuditLoggerOptions();
+
+            _logDirectory = logDirectory ?? opts.LogDirectory ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
+            _fileNameFormat = opts.FileNameFormat;
+            _maxFileSizeMB = opts.MaxLogFileSizeMB;
+            _maxFiles = opts.MaxLogFiles;
+            _compressOldLogs = opts.CompressOldLogs;
 
             _jsonOptions = new JsonSerializerOptions
             {
-                WriteIndented = false,
+                WriteIndented = true,
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             };
 
-            EnsureLogDirectoryExists();
+            // Ensure log directory exists
+            Directory.CreateDirectory(_logDirectory);
+
+            // Setup flush timer
+            _flushTimer = new Timer(FlushCallback, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
         }
 
-        /// <summary>
-        /// Write audit entry to file
-        /// </summary>
-        public async Task WriteAsync(AuditLogEntry logEntry)
+        public void Write(AuditLogEntry entry)
         {
-            if (_disposed) return;
+            if (entry == null || _disposed) return;
 
-            await _writeLock.WaitAsync();
             try
             {
-                var logFile = GetLogFilePath(logEntry.Timestamp);
-                var logLine = FormatLogEntry(logEntry);
+                var logFilePath = GetCurrentLogFilePath();
+                var logLine = FormatLogEntry(entry);
 
-                await File.AppendAllTextAsync(logFile, logLine + Environment.NewLine);
+                lock (_lock)
+                {
+                    File.AppendAllText(logFilePath, logLine + Environment.NewLine);
 
-                UpdateStatistics(logEntry);
+                    // Check if rotation is needed
+                    CheckAndRotateLog(logFilePath);
+                }
             }
             catch (Exception ex)
             {
-                // Fallback - try to write to console
-                Console.WriteLine($"[AUDIT FILE ERROR] {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} - Failed to write to log file: {ex.Message}");
-            }
-            finally
-            {
-                _writeLock.Release();
+                // Fallback to console if file writing fails
+                Console.WriteLine($"[FILE AUDIT ERROR] Failed to write to file: {ex.Message}");
+                Console.WriteLine($"  Original entry: {entry.Message}");
             }
         }
 
-        /// <summary>
-        /// Get audit statistics
-        /// </summary>
-        public async Task<AuditStatistics> GetStatisticsAsync()
+        public async Task WriteAsync(AuditLogEntry entry)
         {
-            await _writeLock.WaitAsync();
+            if (entry == null || _disposed) return;
+
             try
             {
-                return new AuditStatistics
+                _pendingEntries.Enqueue(entry);
+
+                // If too many pending entries, flush immediately
+                if (_pendingEntries.Count > 100)
                 {
-                    TotalEntries = _totalEntries,
-                    ErrorCount = _errorCount,
-                    WarningCount = _warningCount,
-                    FirstEntry = _firstEntry == DateTime.MaxValue ? DateTime.MinValue : _firstEntry,
-                    LastEntry = _lastEntry
-                };
-            }
-            finally
-            {
-                _writeLock.Release();
-            }
-        }
-
-        /// <summary>
-        /// Read log entries from file
-        /// </summary>
-        public async Task<List<AuditLogEntry>> ReadLogEntriesAsync(DateTime date)
-        {
-            var logFile = GetLogFilePath(date);
-            if (!File.Exists(logFile))
-                return new List<AuditLogEntry>();
-
-            var entries = new List<AuditLogEntry>();
-            var lines = await File.ReadAllLinesAsync(logFile);
-
-            foreach (var line in lines)
-            {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                try
-                {
-                    var entry = ParseLogEntry(line);
-                    if (entry != null)
-                        entries.Add(entry);
-                }
-                catch
-                {
-                    // Skip malformed lines
+                    await FlushAsync();
                 }
             }
-
-            return entries;
-        }
-
-        /// <summary>
-        /// Read log entries within date range
-        /// </summary>
-        public async Task<List<AuditLogEntry>> ReadLogEntriesAsync(DateTime fromDate, DateTime toDate)
-        {
-            var allEntries = new List<AuditLogEntry>();
-            var currentDate = fromDate.Date;
-
-            while (currentDate <= toDate.Date)
+            catch (Exception ex)
             {
-                var dayEntries = await ReadLogEntriesAsync(currentDate);
-                allEntries.AddRange(dayEntries.Where(e => e.Timestamp >= fromDate && e.Timestamp <= toDate));
-                currentDate = currentDate.AddDays(1);
-            }
-
-            return allEntries.OrderBy(e => e.Timestamp).ToList();
-        }
-
-        /// <summary>
-        /// Search log entries by message content
-        /// </summary>
-        public async Task<List<AuditLogEntry>> SearchLogEntriesAsync(string searchTerm, DateTime? fromDate = null, DateTime? toDate = null)
-        {
-            var startDate = fromDate ?? DateTime.Today.AddDays(-7);
-            var endDate = toDate ?? DateTime.Today.AddDays(1);
-
-            var entries = await ReadLogEntriesAsync(startDate, endDate);
-
-            if (string.IsNullOrWhiteSpace(searchTerm))
-                return entries;
-
-            return entries.Where(e =>
-                e.Message?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true ||
-                e.Exception?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true
-            ).ToList();
-        }
-
-        /// <summary>
-        /// Get log files in directory
-        /// </summary>
-        public async Task<List<string>> GetLogFilesAsync()
-        {
-            if (!Directory.Exists(_logDirectory))
-                return new List<string>();
-
-            return await Task.Run(() =>
-                Directory.GetFiles(_logDirectory, "audit_*.log")
-                         .OrderByDescending(f => f)
-                         .ToList()
-            );
-        }
-
-        /// <summary>
-        /// Clean up old log files
-        /// </summary>
-        public async Task CleanupOldLogsAsync(int retentionDays = 30)
-        {
-            if (!Directory.Exists(_logDirectory))
-                return;
-
-            var cutoffDate = DateTime.Today.AddDays(-retentionDays);
-
-            var oldFiles = Directory.GetFiles(_logDirectory, "audit_*.log")
-                .Where(f => File.GetCreationTime(f).Date < cutoffDate)
-                .ToList();
-
-            foreach (var file in oldFiles)
-            {
-                try
-                {
-                    File.Delete(file);
-                }
-                catch
-                {
-                    // Ignore deletion errors
-                }
+                Console.WriteLine($"[FILE AUDIT ERROR] Failed to queue entry: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// Archive log files to compressed format
-        /// </summary>
-        public async Task ArchiveLogsAsync(DateTime beforeDate)
+        public void Flush()
         {
-            // Implementation for archiving old logs
-            // This could compress old logs or move them to archive directory
-            await Task.CompletedTask; // Placeholder
-        }
+            if (_disposed) return;
 
-        private void EnsureLogDirectoryExists()
-        {
-            if (!Directory.Exists(_logDirectory))
-            {
-                Directory.CreateDirectory(_logDirectory);
-            }
-        }
-
-        private string GetLogFilePath(DateTime timestamp)
-        {
-            var fileName = string.Format(_logFilePattern, timestamp);
-            return Path.Combine(_logDirectory, fileName);
-        }
-
-        private string FormatLogEntry(AuditLogEntry logEntry)
-        {
-            var logData = new
-            {
-                timestamp = logEntry.Timestamp,
-                level = logEntry.Level.ToString(),
-                category = logEntry.Category.ToString(),
-                message = logEntry.Message,
-                data = logEntry.Data,
-                exception = logEntry.Exception,
-                threadId = logEntry.ThreadId,
-                machineName = logEntry.MachineName,
-                userId = logEntry.UserId,
-                correlationId = logEntry.CorrelationId
-            };
-
-            return JsonSerializer.Serialize(logData, _jsonOptions);
-        }
-
-        private AuditLogEntry ParseLogEntry(string logLine)
-        {
             try
             {
-                var jsonDoc = JsonDocument.Parse(logLine);
-                var root = jsonDoc.RootElement;
-
-                return new AuditLogEntry
-                {
-                    Timestamp = root.GetProperty("timestamp").GetDateTime(),
-                    Level = Enum.Parse<AuditLevel>(root.GetProperty("level").GetString()),
-                    Category = Enum.Parse<AuditCategory>(root.GetProperty("category").GetString()),
-                    Message = root.GetProperty("message").GetString(),
-                    Data = root.TryGetProperty("data", out var dataElement) ? dataElement.GetRawText() : null,
-                    Exception = root.TryGetProperty("exception", out var exElement) ? exElement.GetString() : null,
-                    ThreadId = root.GetProperty("threadId").GetInt32(),
-                    MachineName = root.TryGetProperty("machineName", out var machineElement) ? machineElement.GetString() : null,
-                    UserId = root.TryGetProperty("userId", out var userElement) ? userElement.GetString() : null,
-                    CorrelationId = root.TryGetProperty("correlationId", out var corrElement) ? corrElement.GetString() : null
-                };
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private void UpdateStatistics(AuditLogEntry logEntry)
-        {
-            _totalEntries++;
-
-            if (logEntry.Level == AuditLevel.Error || logEntry.Level == AuditLevel.Critical)
-                _errorCount++;
-            else if (logEntry.Level == AuditLevel.Warning)
-                _warningCount++;
-
-            if (logEntry.Timestamp < _firstEntry)
-                _firstEntry = logEntry.Timestamp;
-
-            if (logEntry.Timestamp > _lastEntry)
-                _lastEntry = logEntry.Timestamp;
-        }
-
-        public void Dispose()
-        {
-            if (!_disposed)
-            {
-                _writeLock?.Dispose();
-                _disposed = true;
-            }
-        }
-    }
-}
