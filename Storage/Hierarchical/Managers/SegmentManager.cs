@@ -5,7 +5,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using static SimpleDataEngine.Storage.Hierarchical.SegmentData<T>;
+using static SimpleDataEngine.Storage.Hierarchical.Models.SegmentData<T>;
 
 namespace SimpleDataEngine.Storage.Hierarchical.Managers
 {

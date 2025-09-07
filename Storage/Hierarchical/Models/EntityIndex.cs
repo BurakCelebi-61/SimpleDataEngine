@@ -1,4 +1,4 @@
-﻿namespace SimpleDataEngine.Storage.Hierarchical
+﻿namespace SimpleDataEngine.Storage.Hierarchical.Models
 {
     /// <summary>
     /// Entity-specific index

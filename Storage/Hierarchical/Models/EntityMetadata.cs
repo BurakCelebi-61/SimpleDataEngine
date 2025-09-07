@@ -1,4 +1,4 @@
-﻿namespace SimpleDataEngine.Storage.Hierarchical
+﻿namespace SimpleDataEngine.Storage.Hierarchical.Models
 {
     /// <summary>
     /// Entity-specific metadata
@@ -28,7 +28,7 @@
         /// <summary>
         /// Last update timestamp
         /// </summary>
-        public DateTime LastUpdated { get; set; } = DateTime.Now;
+        public DateTime LastModified { get; set; } = DateTime.Now;
 
         /// <summary>
         /// Entity creation timestamp
