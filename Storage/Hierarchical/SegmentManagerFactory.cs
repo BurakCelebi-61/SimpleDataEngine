@@ -14,15 +14,6 @@ namespace SimpleDataEngine.Storage.Hierarchical
         {
             return new SegmentManager(config, fileHandler, entityName);
         }
-
-        /// <summary>
-        /// Generic SegmentManager oluşturma
-        /// </summary>
-        public static SegmentManager<T> Create<T>(HierarchicalDatabaseConfig config, IFileHandler fileHandler, string entityName) where T : class
-        {
-            return new SegmentManager<T>(config, fileHandler, entityName);
-        }
-
         /// <summary>
         /// Async initialization ile SegmentManager oluştur
         /// </summary>

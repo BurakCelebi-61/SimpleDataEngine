@@ -82,7 +82,7 @@ namespace SimpleDataEngine.Audit
         /// <summary>
         /// Sync error log method - mevcut implementasyon için
         /// </summary>
-        public static void LogError(string message, Exception exception = null, object data = null)
+        public static void LogError(string message, Exception exception = null, object data = null, AuditCategory category = default)
         {
             LogErrorAsync(message, exception, data).GetAwaiter().GetResult();
         }
@@ -275,34 +275,6 @@ namespace SimpleDataEngine.Audit
         public string MachineName { get; set; }
         public string UserId { get; set; }
         public string CorrelationId { get; set; } = Guid.NewGuid().ToString();
-    }
-
-    /// <summary>
-    /// Audit levels
-    /// </summary>
-    public enum AuditLevel
-    {
-        Debug,
-        Information,
-        Warning,
-        Error,
-        Critical
-    }
-
-    /// <summary>
-    /// Audit categories
-    /// </summary>
-    public enum AuditCategory
-    {
-        General,
-        System,
-        Data,
-        Performance,
-        Security,
-        Error,
-        Debug,
-        Backup,
-        Configuration
     }
 
     /// <summary>
