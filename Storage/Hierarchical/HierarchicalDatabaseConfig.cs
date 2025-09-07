@@ -3,158 +3,89 @@
 namespace SimpleDataEngine.Storage.Hierarchical
 {
     /// <summary>
-    /// Hierarchical database configuration
+    /// Configuration for hierarchical database
     /// </summary>
     public class HierarchicalDatabaseConfig
     {
-        /// <summary>
-        /// Base path for database storage
-        /// </summary>
-        public string BasePath { get; set; } = "database";
-
-        /// <summary>
-        /// Whether encryption is enabled for all files
-        /// </summary>
+        public string DatabasePath { get; set; } = string.Empty;
         public bool EncryptionEnabled { get; set; } = false;
+        public EncryptionConfig? EncryptionConfig { get; set; }
+        public bool EnableCompression { get; set; } = false;
+        public int MaxSegmentSizeMB { get; set; } = 100;
+        public int MaxMemoryUsageMB { get; set; } = 512;
+        public TimeSpan? FlushInterval { get; set; } = TimeSpan.FromSeconds(30);
+        public bool AutoFlush { get; set; } = true;
+        public int CacheSize { get; set; } = 1000;
+        public bool EnableIndexing { get; set; } = true;
+        public string BackupDirectory { get; set; } = string.Empty;
+        public bool EnableMetrics { get; set; } = true;
 
         /// <summary>
-        /// Encryption configuration settings
+        /// Validate configuration
         /// </summary>
-        public EncryptionConfig Encryption { get; set; } = new();
-
-        /// <summary>
-        /// Maximum segment size in MB before creating new segment
-        /// </summary>
-        public int MaxSegmentSizeMB { get; set; } = 500;
-
-        /// <summary>
-        /// Maximum records per segment (backup limit)
-        /// </summary>
-        public int MaxRecordsPerSegment { get; set; } = 100000;
-
-        /// <summary>
-        /// Enable compression for segments
-        /// </summary>
-        public bool EnableCompression { get; set; } = true;
-
-        /// <summary>
-        /// Auto-cleanup segments older than specified days
-        /// </summary>
-        public int AutoCleanupDays { get; set; } = 365;
-
-        /// <summary>
-        /// Enable real-time indexing
-        /// </summary>
-        public bool EnableRealTimeIndexing { get; set; } = true;
-
-        // Auto-determined paths
-        /// <summary>
-        /// Data models directory path
-        /// </summary>
-        public string DataModelsPath => Path.Combine(BasePath, "datamodels");
-
-        /// <summary>
-        /// Temporary files directory path
-        /// </summary>
-        public string TempsPath => Path.Combine(BasePath, "temps");
-
-        /// <summary>
-        /// Backups directory path
-        /// </summary>
-        public string BackupsPath => Path.Combine(BasePath, "backups");
-
-        /// <summary>
-        /// Logs directory path
-        /// </summary>
-        public string LogsPath => Path.Combine(BasePath, "logs");
-
-        /// <summary>
-        /// Auto-determined file extension based on encryption
-        /// </summary>
-        public string FileExtension => EncryptionEnabled ? ".sde" : ".json";
-
-        /// <summary>
-        /// Validates configuration settings
-        /// </summary>
-        /// <returns>Validation result</returns>
-        public ConfigValidationResult Validate()
+        public void Validate()
         {
-            var result = new ConfigValidationResult { IsValid = true };
-
-            if (string.IsNullOrWhiteSpace(BasePath))
+            if (string.IsNullOrWhiteSpace(DatabasePath))
             {
-                result.IsValid = false;
-                result.Errors.Add("BasePath cannot be null or empty");
+                throw new ArgumentException("Database path cannot be null or empty", nameof(DatabasePath));
             }
 
             if (MaxSegmentSizeMB <= 0)
             {
-                result.IsValid = false;
-                result.Errors.Add("MaxSegmentSizeMB must be greater than 0");
+                throw new ArgumentException("Max segment size must be greater than 0", nameof(MaxSegmentSizeMB));
             }
 
-            if (MaxRecordsPerSegment <= 0)
+            if (MaxMemoryUsageMB <= 0)
             {
-                result.IsValid = false;
-                result.Errors.Add("MaxRecordsPerSegment must be greater than 0");
+                throw new ArgumentException("Max memory usage must be greater than 0", nameof(MaxMemoryUsageMB));
             }
 
-            if (AutoCleanupDays < 0)
+            if (EncryptionEnabled && EncryptionConfig == null)
             {
-                result.IsValid = false;
-                result.Errors.Add("AutoCleanupDays cannot be negative");
+                throw new ArgumentException("Encryption config must be provided when encryption is enabled", nameof(EncryptionConfig));
             }
 
-            if (EncryptionEnabled && Encryption == null)
+            if (CacheSize < 0)
             {
-                result.IsValid = false;
-                result.Errors.Add("Encryption config is required when encryption is enabled");
+                throw new ArgumentException("Cache size cannot be negative", nameof(CacheSize));
             }
 
-            return result;
+            if (FlushInterval.HasValue && FlushInterval.Value <= TimeSpan.Zero)
+            {
+                throw new ArgumentException("Flush interval must be positive", nameof(FlushInterval));
+            }
         }
 
         /// <summary>
-        /// Creates a copy of the configuration
+        /// Create default configuration
         /// </summary>
-        /// <returns>Cloned configuration</returns>
-        public HierarchicalDatabaseConfig Clone()
+        public static HierarchicalDatabaseConfig CreateDefault(string databasePath)
         {
             return new HierarchicalDatabaseConfig
             {
-                BasePath = BasePath,
-                EncryptionEnabled = EncryptionEnabled,
-                Encryption = new EncryptionConfig
-                {
-                    EnableEncryption = Encryption.EnableEncryption,
-                    CustomPassword = Encryption.CustomPassword,
-                    CompressBeforeEncrypt = Encryption.CompressBeforeEncrypt,
-                    FileExtension = Encryption.FileExtension,
-                    EncryptionType = Encryption.EncryptionType,
-                    KeyDerivationIterations = Encryption.KeyDerivationIterations,
-                    IncludeIntegrityCheck = Encryption.IncludeIntegrityCheck
-                },
-                MaxSegmentSizeMB = MaxSegmentSizeMB,
-                MaxRecordsPerSegment = MaxRecordsPerSegment,
-                EnableCompression = EnableCompression,
-                AutoCleanupDays = AutoCleanupDays,
-                EnableRealTimeIndexing = EnableRealTimeIndexing
+                DatabasePath = databasePath,
+                EncryptionEnabled = false,
+                EnableCompression = false,
+                MaxSegmentSizeMB = 100,
+                MaxMemoryUsageMB = 512,
+                FlushInterval = TimeSpan.FromSeconds(30),
+                AutoFlush = true,
+                CacheSize = 1000,
+                EnableIndexing = true,
+                BackupDirectory = Path.Combine(databasePath, "backups"),
+                EnableMetrics = true
             };
         }
-    }
 
-    /// <summary>
-    /// Configuration validation result
-    /// </summary>
-    public class ConfigValidationResult
-    {
-        public bool IsValid { get; set; } = true;
-        public List<string> Errors { get; set; } = new();
-        public List<string> Warnings { get; set; } = new();
-
-        public bool HasErrors => Errors.Any();
-        public bool HasWarnings => Warnings.Any();
-        public int ErrorCount => Errors.Count;
-        public int WarningCount => Warnings.Count;
+        /// <summary>
+        /// Create configuration with encryption
+        /// </summary>
+        public static HierarchicalDatabaseConfig CreateWithEncryption(string databasePath, EncryptionConfig encryptionConfig)
+        {
+            var config = CreateDefault(databasePath);
+            config.EncryptionEnabled = true;
+            config.EncryptionConfig = encryptionConfig;
+            return config;
+        }
     }
 }

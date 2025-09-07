@@ -1,14 +1,21 @@
-﻿// Notifications/NotificationEngine.cs - LogWarning hatası düzeltildi
-using SimpleDataEngine.Audit;
+﻿using SimpleDataEngine.Audit;
+using System.Collections.Concurrent;
 
 namespace SimpleDataEngine.Notifications
 {
+    /// <summary>
+    /// Central notification engine for the application
+    /// </summary>
     public static class NotificationEngine
     {
-        private static readonly List<INotificationTarget> _targets = new List<INotificationTarget>();
+        private static readonly ConcurrentQueue<Notification> _notifications = new();
+        private static readonly List<INotificationChannel> _channels = new();
         private static readonly object _lock = new object();
         private static bool _initialized = false;
 
+        /// <summary>
+        /// Initialize the notification engine
+        /// </summary>
         public static void Initialize()
         {
             if (_initialized) return;
@@ -17,27 +24,19 @@ namespace SimpleDataEngine.Notifications
             {
                 if (_initialized) return;
 
-                // Add default console target
-                AddTarget(new ConsoleNotificationTarget());
+                // Add default console channel
+                _channels.Add(new ConsoleNotificationChannel());
                 _initialized = true;
 
-                AuditLogger.Log("NOTIFICATION_ENGINE_INITIALIZED", null, AuditCategory.System);
+                AuditLogger.Log("NOTIFICATION_ENGINE_INITIALIZED", null, AuditCategory.Notification);
             }
         }
 
-        public static void AddTarget(INotificationTarget target)
+        /// <summary>
+        /// Send a notification
+        /// </summary>
+        public static async Task NotifyAsync(string title, string message, NotificationSeverity severity = NotificationSeverity.Information)
         {
-            lock (_lock)
-            {
-                _targets.Add(target);
-            }
-        }
-
-        public static async Task NotifyAsync(string title, string message, NotificationSeverity severity = NotificationSeverity.Info)
-        {
-            if (!_initialized)
-                Initialize();
-
             var notification = new Notification
             {
                 Id = Guid.NewGuid().ToString(),
@@ -47,446 +46,86 @@ namespace SimpleDataEngine.Notifications
                 Timestamp = DateTime.UtcNow
             };
 
-            // Log to audit system
-            if (severity == NotificationSeverity.Warning || severity == NotificationSeverity.Error)
-            {
-                // DÜZELTME: LogWarning metodu artık mevcut
-                AuditLogger.LogWarning($"NOTIFICATION_{severity.ToString().ToUpper()}", new
-                {
-                    Title = title,
-                    Message = message,
-                    Severity = severity
-                }, AuditCategory.System);
-            }
-            else
-            {
-                AuditLogger.Log($"NOTIFICATION_{severity.ToString().ToUpper()}", new
-                {
-                    Title = title,
-                    Message = message,
-                    Severity = severity
-                }, AuditCategory.System);
-            }
+            _notifications.Enqueue(notification);
 
-            // Send to all targets
+            // Send to all channels
             var tasks = new List<Task>();
             lock (_lock)
             {
-                foreach (var target in _targets)
+                foreach (var channel in _channels)
                 {
-                    tasks.Add(target.SendAsync(notification));
+                    tasks.Add(channel.SendAsync(notification));
                 }
             }
 
             if (tasks.Any())
             {
-                try
-                {
-                    await Task.WhenAll(tasks);
-                }
-                catch (Exception ex)
-                {
-                    AuditLogger.LogError("NOTIFICATION_SEND_FAILED", ex, new { NotificationId = notification.Id });
-                }
+                await Task.WhenAll(tasks);
             }
+
+            AuditLogger.Log("NOTIFICATION_SENT", new
+            {
+                NotificationId = notification.Id,
+                Title = title,
+                Severity = severity.ToString()
+            }, AuditCategory.Notification);
         }
-
-        public static List<Notification> GetNotifications(int count = 100)
-        {
-            // Implementation for getting recent notifications
-            return new List<Notification>();
-        }
-
-        public static NotificationStatistics GetStatistics()
-        {
-            return new NotificationStatistics
-            {
-                TotalSent = 0,
-                TargetCount = _targets.Count,
-                LastNotificationTime = DateTime.UtcNow
-            };
-        }
-
-        public static void Subscribe(INotificationSubscription subscription)
-        {
-            // Implementation for subscription management
-        }
-    }
-
-    public interface INotificationTarget
-    {
-        Task SendAsync(Notification notification);
-    }
-
-    public class ConsoleNotificationTarget : INotificationTarget
-    {
-        public async Task SendAsync(Notification notification)
-        {
-            await Task.Run(() =>
-            {
-                var color = notification.Severity switch
-                {
-                    NotificationSeverity.Error => ConsoleColor.Red,
-                    NotificationSeverity.Warning => ConsoleColor.Yellow,
-                    NotificationSeverity.Info => ConsoleColor.White,
-                    _ => ConsoleColor.Gray
-                };
-
-                var originalColor = Console.ForegroundColor;
-                Console.ForegroundColor = color;
-                Console.WriteLine($"[{notification.Timestamp:HH:mm:ss}] [{notification.Severity}] {notification.Title}: {notification.Message}");
-                Console.ForegroundColor = originalColor;
-            });
-        }
-    }
-
-    public class Notification
-    {
-        public string Id { get; set; } = string.Empty;
-        public string Title { get; set; } = string.Empty;
-        public string Message { get; set; } = string.Empty;
-        public NotificationSeverity Severity { get; set; }
-        public DateTime Timestamp { get; set; }
-    }
-
-    public enum NotificationSeverity
-    {
-        Debug,
-        Info,
-        Warning,
-        Error,
-        Critical
-    }
-
-    public class NotificationStatistics
-    {
-        public int TotalSent { get; set; }
-        public int TargetCount { get; set; }
-        public DateTime LastNotificationTime { get; set; }
-    }
-
-    public interface INotificationSubscription
-    {
-        // Subscription interface
-    }
-}
-
-// Versioning/BaseMigration.cs - LogWarning hatası düzeltildi
-using SimpleDataEngine.Audit;
-
-namespace SimpleDataEngine.Versioning
-{
-    /// <summary>
-    /// Base migration class - LogWarning hatası düzeltildi
-    /// </summary>
-    public abstract class BaseMigration
-    {
-        public abstract string Version { get; }
-        public abstract string Description { get; }
-
-        protected DateTime StartTime { get; private set; }
-        protected TimeSpan Duration => DateTime.UtcNow - StartTime;
-
-        public async Task<MigrationResult> ExecuteAsync()
-        {
-            StartTime = DateTime.UtcNow;
-
-            AuditLogger.Log("MIGRATION_STARTED", new
-            {
-                Version = Version,
-                Description = Description,
-                StartTime = StartTime
-            }, AuditCategory.Database);
-
-            try
-            {
-                await PerformMigrationAsync();
-
-                var result = new MigrationResult
-                {
-                    Success = true,
-                    Version = Version,
-                    Duration = Duration,
-                    Message = "Migration completed successfully"
-                };
-
-                AuditLogger.Log("MIGRATION_COMPLETED", new
-                {
-                    Version = Version,
-                    Duration = Duration.TotalMilliseconds,
-                    Success = true
-                }, AuditCategory.Database);
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                var result = new MigrationResult
-                {
-                    Success = false,
-                    Version = Version,
-                    Duration = Duration,
-                    Message = $"Migration failed: {ex.Message}",
-                    Exception = ex
-                };
-
-                AuditLogger.LogError("MIGRATION_FAILED", ex, new
-                {
-                    Version = Version,
-                    Duration = Duration.TotalMilliseconds,
-                    Description = Description
-                });
-
-                return result;
-            }
-        }
-
-        protected abstract Task PerformMigrationAsync();
-
-        protected void LogProgress(string message, object? data = null)
-        {
-            AuditLogger.Log("MIGRATION_PROGRESS", new
-            {
-                Version = Version,
-                Message = message,
-                ElapsedMs = Duration.TotalMilliseconds,
-                Data = data
-            }, AuditCategory.Database);
-        }
-
-        protected void LogWarning(string message, object? data = null)
-        {
-            // DÜZELTME: LogWarning metodu artık mevcut
-            AuditLogger.LogWarning("MIGRATION_WARNING", new
-            {
-                Version = Version,
-                Message = message,
-                ElapsedMs = Duration.TotalMilliseconds,
-                Data = data
-            }, AuditCategory.Database);
-        }
-
-        protected void LogError(string message, Exception? exception = null, object? data = null)
-        {
-            AuditLogger.LogError("MIGRATION_ERROR", exception, new
-            {
-                Version = Version,
-                Message = message,
-                ElapsedMs = Duration.TotalMilliseconds,
-                Data = data
-            });
-        }
-
-        protected async Task BackupDataAsync(string backupPath)
-        {
-            LogProgress("Creating backup", new { BackupPath = backupPath });
-
-            try
-            {
-                // Implementation for backup
-                await Task.Delay(100); // Placeholder
-
-                LogProgress("Backup created successfully", new { BackupPath = backupPath });
-            }
-            catch (Exception ex)
-            {
-                LogError("Backup creation failed", ex, new { BackupPath = backupPath });
-                throw;
-            }
-        }
-
-        protected async Task ValidateDataIntegrityAsync()
-        {
-            LogProgress("Validating data integrity");
-
-            try
-            {
-                // Implementation for validation
-                await Task.Delay(50); // Placeholder
-
-                LogProgress("Data integrity validation passed");
-            }
-            catch (Exception ex)
-            {
-                LogError("Data integrity validation failed", ex);
-                throw;
-            }
-        }
-    }
-
-    public class MigrationResult
-    {
-        public bool Success { get; set; }
-        public string Version { get; set; } = string.Empty;
-        public TimeSpan Duration { get; set; }
-        public string Message { get; set; } = string.Empty;
-        public Exception? Exception { get; set; }
-        public Dictionary<string, object> Metadata { get; set; } = new Dictionary<string, object>();
-    }
-}
-
-// Storage/Hierarchical/HierarchicalDatabaseConfig.cs - Eksik config sınıfı
-namespace SimpleDataEngine.Storage.Hierarchical
-{
-    /// <summary>
-    /// Configuration for hierarchical database
-    /// </summary>
-    public class HierarchicalDatabaseConfig
-    {
-        public string DatabasePath { get; set; } = string.Empty;
-        public bool EncryptionEnabled { get; set; } = false;
-        public Security.EncryptionConfig? EncryptionConfig { get; set; }
-        public int MaxMemoryUsageMB { get; set; } = 512;
-        public TimeSpan? AutoFlushInterval { get; set; } = TimeSpan.FromSeconds(30);
-        public bool EnableCompression { get; set; } = true;
-        public int MaxSegmentSizeMB { get; set; } = 64;
-        public bool CacheEnabled { get; set; } = true;
-        public int CacheSizeMB { get; set; } = 128;
-        public bool IndexCacheEnabled { get; set; } = true;
-        public bool EnableDetailedLogging { get; set; } = false;
-        public bool EnablePerformanceMetrics { get; set; } = true;
 
         /// <summary>
-        /// Validate configuration
+        /// Add notification channel
         /// </summary>
-        public ValidationResult Validate()
+        public static void AddChannel(INotificationChannel channel)
         {
-            var result = new ValidationResult();
-
-            if (string.IsNullOrEmpty(DatabasePath))
-                result.AddError("DatabasePath cannot be null or empty");
-
-            if (MaxMemoryUsageMB <= 0)
-                result.AddError("MaxMemoryUsageMB must be positive");
-
-            if (MaxSegmentSizeMB <= 0)
-                result.AddError("MaxSegmentSizeMB must be positive");
-
-            if (CacheEnabled && CacheSizeMB <= 0)
-                result.AddError("CacheSizeMB must be positive when cache is enabled");
-
-            if (EncryptionEnabled && EncryptionConfig != null)
+            lock (_lock)
             {
-                var encryptionValidation = EncryptionConfig.Validate();
-                if (!encryptionValidation.IsValid)
-                    result.AddErrors(encryptionValidation.Errors);
+                _channels.Add(channel);
+            }
+        }
+
+        /// <summary>
+        /// Get recent notifications
+        /// </summary>
+        public static List<Notification> GetNotifications(int count = 50)
+        {
+            return _notifications.TakeLast(count).ToList();
+        }
+
+        /// <summary>
+        /// Get notification statistics
+        /// </summary>
+        public static NotificationStatistics GetStatistics()
+        {
+            var notifications = _notifications.ToList();
+            var stats = new NotificationStatistics
+            {
+                TotalNotifications = notifications.Count,
+                NotificationsBySeverity = new Dictionary<NotificationSeverity, int>()
+            };
+
+            foreach (var severity in Enum.GetValues<NotificationSeverity>())
+            {
+                stats.NotificationsBySeverity[severity] = notifications.Count(n => n.Severity == severity);
             }
 
-            return result;
-        }
-    }
-
-    /// <summary>
-    /// Validation result helper class
-    /// </summary>
-    public class ValidationResult
-    {
-        public bool IsValid => !Errors.Any();
-        public List<string> Errors { get; } = new List<string>();
-
-        public void AddError(string error)
-        {
-            if (!string.IsNullOrEmpty(error))
-                Errors.Add(error);
+            return stats;
         }
 
-        public void AddErrors(IEnumerable<string> errors)
+        /// <summary>
+        /// Clear old notifications
+        /// </summary>
+        public static void ClearOldNotifications(TimeSpan maxAge)
         {
-            foreach (var error in errors ?? Enumerable.Empty<string>())
-                AddError(error);
-        }
+            var cutoff = DateTime.UtcNow - maxAge;
+            var cleared = 0;
 
-        public override string ToString()
-        {
-            return IsValid ? $"Valid";: $"Invalid: {string.Join(", ", Errors)}";
-        }
-    }
-}
+            // Note: ConcurrentQueue doesn't support removal, so we'll just let them age out naturally
+            // In a real implementation, you might use a different data structure
 
-// Storage/Hierarchical/Managers/GlobalMetadataManager.cs - Eksik manager sınıfları
-using SimpleDataEngine.Security;
-
-namespace SimpleDataEngine.Storage.Hierarchical.Managers
-{
-    public class GlobalMetadataManager
-    {
-        private readonly HierarchicalDatabaseConfig _config;
-        private readonly IFileHandler _fileHandler;
-
-        public GlobalMetadataManager(HierarchicalDatabaseConfig config, IFileHandler fileHandler)
-        {
-            _config = config ?? throw new ArgumentNullException(nameof(config));
-            _fileHandler = fileHandler ?? throw new ArgumentNullException(nameof(fileHandler));
-        }
-
-        public async Task InitializeAsync()
-        {
-            // Implementation for initialization
-            await Task.CompletedTask;
-        }
-
-        public async Task FlushAsync()
-        {
-            // Implementation for flushing
-            await Task.CompletedTask;
-        }
-
-        public async Task HealthCheckAsync()
-        {
-            // Implementation for health check
-            await Task.CompletedTask;
-        }
-    }
-
-    public class EntityMetadataManager
-    {
-        private readonly string _entityName;
-        private readonly HierarchicalDatabaseConfig _config;
-        private readonly IFileHandler _fileHandler;
-
-        public EntityMetadataManager(string entityName, HierarchicalDatabaseConfig config, IFileHandler fileHandler)
-        {
-            _entityName = entityName ?? throw new ArgumentNullException(nameof(entityName));
-            _config = config ?? throw new ArgumentNullException(nameof(config));
-            _fileHandler = fileHandler ?? throw new ArgumentNullException(nameof(fileHandler));
-        }
-
-        public async Task InitializeAsync()
-        {
-            // Implementation for initialization
-            await Task.CompletedTask;
-        }
-
-        public async Task FlushAsync()
-        {
-            // Implementation for flushing
-            await Task.CompletedTask;
-        }
-    }
-
-    public class SegmentManager
-    {
-        private readonly string _entityName;
-        private readonly HierarchicalDatabaseConfig _config;
-        private readonly IFileHandler _fileHandler;
-
-        public SegmentManager(string entityName, HierarchicalDatabaseConfig config, IFileHandler fileHandler)
-        {
-            _entityName = entityName ?? throw new ArgumentNullException(nameof(entityName));
-            _config = config ?? throw new ArgumentNullException(nameof(config));
-            _fileHandler = fileHandler ?? throw new ArgumentNullException(nameof(fileHandler));
-        }
-
-        public async Task InitializeAsync()
-        {
-            // Implementation for initialization
-            await Task.CompletedTask;
-        }
-
-        public async Task FlushAsync()
-        {
-            // Implementation for flushing
-            await Task.CompletedTask;
+            AuditLogger.Log("NOTIFICATIONS_CLEANUP_REQUESTED", new
+            {
+                MaxAge = maxAge.ToString(),
+                ClearedCount = cleared
+            }, AuditCategory.Notification);
         }
     }
 }

@@ -10,9 +10,6 @@
         Error,
         Critical
     }
-    #region Built-in Rule Implementations
-
-    #endregion
 
     /// <summary>
     /// Validation extensions for easier usage

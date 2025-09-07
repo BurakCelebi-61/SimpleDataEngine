@@ -1,6 +1,4 @@
-﻿using static SimpleDataEngine.Storage.Hierarchical.Models.EntityMetadata;
-
-namespace SimpleDataEngine.Storage.Hierarchical.Models
+﻿namespace SimpleDataEngine.Storage.Hierarchical.Models
 {
     /// <summary>
     /// Entity-specific index
@@ -41,7 +39,7 @@ namespace SimpleDataEngine.Storage.Hierarchical.Models
         /// Cached query results
         /// </summary>
         public Dictionary<string, CachedQuery> QueryCache { get; set; } = new();
-        
+
 
         /// <summary>
         /// Property index information

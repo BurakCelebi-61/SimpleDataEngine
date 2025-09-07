@@ -1,319 +1,256 @@
 ﻿using SimpleDataEngine.Audit;
-using SimpleDataEngine.Storage.Hierarchical.Models;
-using SimpleDataEngine.Storage.Hierarchical.SimpleDataEngine.Storage.Hierarchical.Managers;
-using System.Collections.Concurrent;
+using SimpleDataEngine.Performance;
 
 namespace SimpleDataEngine.Storage.Hierarchical.Managers
 {
+    /// <summary>
+    /// Manages data segments for entities
+    /// </summary>
     public class SegmentManager : IDisposable
     {
+        private readonly string _entityName;
         private readonly HierarchicalDatabaseConfig _config;
         private readonly IFileHandler _fileHandler;
-        private readonly string _entityName;
-        private readonly string _entityPath;
-        private readonly EntityMetadataManager _entityMetadataManager;
-        private readonly ConcurrentDictionary<int, SegmentMetadata> _segmentCache;
-        private readonly SemaphoreSlim _segmentLock;
-        private bool _disposed;
-        private int _currentActiveSegment = 1;
+        private readonly string _segmentDirectory;
+        private readonly Dictionary<string, Segment> _activeSegments;
+        private readonly object _lock = new object();
+        private bool _disposed = false;
 
-        public SegmentManager(HierarchicalDatabaseConfig config, IFileHandler fileHandler, string entityName)
+        public SegmentManager(string entityName, HierarchicalDatabaseConfig config, IFileHandler fileHandler)
         {
+            _entityName = entityName ?? throw new ArgumentNullException(nameof(entityName));
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _fileHandler = fileHandler ?? throw new ArgumentNullException(nameof(fileHandler));
-            _entityName = entityName ?? throw new ArgumentNullException(nameof(entityName));
-            _entityPath = Path.Combine(config.DataModelsPath, entityName);
-            _entityMetadataManager = new EntityMetadataManager(config, fileHandler, entityName);
-            _segmentCache = new ConcurrentDictionary<int, SegmentMetadata>();
-            _segmentLock = new SemaphoreSlim(1, 1);
+
+            _segmentDirectory = Path.Combine(_config.DatabasePath, "segments", _entityName);
+            _activeSegments = new Dictionary<string, Segment>();
         }
 
+        /// <summary>
+        /// Initialize the segment manager
+        /// </summary>
         public async Task InitializeAsync()
         {
-            if (!Directory.Exists(_entityPath))
-            {
-                Directory.CreateDirectory(_entityPath);
-            }
-            await _entityMetadataManager.InitializeAsync();
-            await LoadSegmentMetadataAsync();
-        }
+            ThrowIfDisposed();
 
-        #region EKSIK METHOD'LAR - HATALAR İÇİN
+            using var operation = PerformanceTracker.StartOperation("SegmentManagerInit", "Storage");
 
-        /// <summary>
-        /// Write data to specific segment
-        /// </summary>
-        public async Task WriteToSegmentAsync<T>(int segmentId, List<T> records) where T : class
-        {
-            await _segmentLock.WaitAsync();
             try
             {
-                var segmentData = new SegmentData<T>
+                await _fileHandler.CreateDirectoryAsync(_segmentDirectory);
+
+                // Load existing segments
+                var segmentFiles = await _fileHandler.GetFilesAsync(_segmentDirectory, "*.seg");
+
+                foreach (var segmentFile in segmentFiles)
                 {
-                    SegmentId = segmentId,
-                    Records = records ?? new List<T>(),
-                    CreatedAt = DateTime.UtcNow,
-                    LastModified = DateTime.UtcNow
-                };
+                    var segmentName = Path.GetFileNameWithoutExtension(segmentFile);
+                    var segment = new Segment(segmentName, segmentFile, _config, _fileHandler);
+                    await segment.LoadAsync();
 
-                var filePath = GetSegmentFilePath(segmentId);
-                await _fileHandler.WriteAsync(filePath, segmentData);
-
-                // Update metadata
-                await UpdateSegmentMetadataAfterWriteAsync(segmentId, records?.Count ?? 0, filePath);
-
-                await AuditLogger.LogAsync($"Data written to segment {segmentId} for entity {_entityName}",
-                    new { SegmentId = segmentId, RecordCount = records?.Count ?? 0 });
-            }
-            finally
-            {
-                _segmentLock.Release();
-            }
-        }
-
-        /// <summary>
-        /// Get active segment ID for new records
-        /// </summary>
-        public async Task<int> GetActiveSegmentIdAsync()
-        {
-            await _segmentLock.WaitAsync();
-            try
-            {
-                // Check if current active segment is full
-                var activeSegmentPath = GetSegmentFilePath(_currentActiveSegment);
-
-                if (await _fileHandler.ExistsAsync(activeSegmentPath))
-                {
-                    var fileSize = await _fileHandler.GetFileSizeAsync(activeSegmentPath);
-                    var maxSizeBytes = _config.MaxSegmentSizeMB * 1024 * 1024;
-
-                    if (fileSize >= maxSizeBytes)
+                    lock (_lock)
                     {
-                        // Create new segment
-                        _currentActiveSegment++;
+                        _activeSegments[segmentName] = segment;
                     }
                 }
 
-                return _currentActiveSegment;
-            }
-            finally
-            {
-                _segmentLock.Release();
-            }
-        }
+                operation.MarkSuccess();
 
-        /// <summary>
-        /// Get all segment IDs
-        /// </summary>
-        public async Task<List<int>> GetAllSegmentIdsAsync()
-        {
-            var segmentFiles = await _fileHandler.GetFilesAsync(_entityPath, $"{_entityName}_segment_*{_config.FileExtension}");
-
-            var segmentIds = new List<int>();
-            foreach (var file in segmentFiles)
-            {
-                var fileName = Path.GetFileNameWithoutExtension(file);
-                var parts = fileName.Split('_');
-                if (parts.Length >= 3 && int.TryParse(parts[2], out var segmentId))
+                AuditLogger.Log("SEGMENT_MANAGER_INITIALIZED", new
                 {
-                    segmentIds.Add(segmentId);
-                }
-            }
-
-            return segmentIds.OrderBy(id => id).ToList();
-        }
-
-        /// <summary>
-        /// Append records to specific segment
-        /// </summary>
-        public async Task AppendToSegmentAsync<T>(int segmentId, List<T> records) where T : class
-        {
-            if (records == null || !records.Any()) return;
-
-            await _segmentLock.WaitAsync();
-            try
-            {
-                // Read existing data
-                var existingData = await ReadFromSegmentAsync<T>(segmentId);
-
-                // Append new records
-                existingData.Records.AddRange(records);
-                existingData.LastModified = DateTime.UtcNow;
-
-                // Write back to segment
-                await WriteToSegmentAsync(segmentId, existingData.Records);
-
-                await AuditLogger.LogAsync($"Records appended to segment {segmentId} for entity {_entityName}",
-                    new { SegmentId = segmentId, AppendedCount = records.Count, TotalCount = existingData.Records.Count });
-            }
-            finally
-            {
-                _segmentLock.Release();
-            }
-        }
-
-        /// <summary>
-        /// Compact segments by merging small segments
-        /// </summary>
-        public async Task CompactSegmentsAsync()
-        {
-            await _segmentLock.WaitAsync();
-            try
-            {
-                var segmentIds = await GetAllSegmentIdsAsync();
-                var segmentsToCompact = new List<int>();
-
-                // Find segments that are smaller than threshold
-                var minSizeThreshold = _config.MaxSegmentSizeMB * 0.3 * 1024 * 1024; // 30% of max size
-
-                foreach (var segmentId in segmentIds)
-                {
-                    var filePath = GetSegmentFilePath(segmentId);
-                    if (await _fileHandler.ExistsAsync(filePath))
-                    {
-                        var fileSize = await _fileHandler.GetFileSizeAsync(filePath);
-                        if (fileSize < minSizeThreshold)
-                        {
-                            segmentsToCompact.Add(segmentId);
-                        }
-                    }
-                }
-
-                if (segmentsToCompact.Count > 1)
-                {
-                    await PerformSegmentCompactionAsync(segmentsToCompact);
-                }
-
-                await AuditLogger.LogAsync($"Segment compaction completed for entity {_entityName}",
-                    new { ProcessedSegments = segmentsToCompact.Count });
-            }
-            finally
-            {
-                _segmentLock.Release();
-            }
-        }
-
-        #endregion
-
-        #region EXISTING METHODS
-
-        /// <summary>
-        /// Read data from specific segment
-        /// </summary>
-        public async Task<SegmentData<T>> ReadFromSegmentAsync<T>(int segmentId) where T : class
-        {
-            var filePath = GetSegmentFilePath(segmentId);
-            if (!await _fileHandler.ExistsAsync(filePath))
-            {
-                return new SegmentData<T>
-                {
-                    SegmentId = segmentId,
-                    Records = new List<T>(),
-                    CreatedAt = DateTime.UtcNow,
-                    LastModified = DateTime.UtcNow
-                };
-            }
-
-            try
-            {
-                var segmentData = await _fileHandler.ReadAsync<SegmentData<T>>(filePath);
-                return segmentData ?? new SegmentData<T>
-                {
-                    SegmentId = segmentId,
-                    Records = new List<T>(),
-                    CreatedAt = DateTime.UtcNow,
-                    LastModified = DateTime.UtcNow
-                };
+                    EntityName = _entityName,
+                    SegmentCount = _activeSegments.Count
+                }, AuditCategory.Database);
             }
             catch (Exception ex)
             {
-                await AuditLogger.LogErrorAsync($"Failed to read from segment {segmentId}", ex);
+                operation.MarkFailure();
+                AuditLogger.LogError("SEGMENT_MANAGER_INIT_FAILED", ex, new { EntityName = _entityName });
                 throw;
             }
         }
 
-        #endregion
-
-        #region HELPER METHODS
-
-        private string GetSegmentFilePath(int segmentId)
+        /// <summary>
+        /// Store data in a segment
+        /// </summary>
+        public async Task<string> StoreAsync(string data)
         {
-            var fileName = $"{_entityName}_segment_{segmentId:D6}{_config.FileExtension}";
-            return Path.Combine(_entityPath, fileName);
-        }
+            ThrowIfDisposed();
 
-        private async Task UpdateSegmentMetadataAfterWriteAsync(int segmentId, int recordCount, string filePath)
-        {
-            var fileSize = await _fileHandler.GetFileSizeAsync(filePath);
+            using var operation = PerformanceTracker.StartOperation("SegmentStore", "Storage");
 
-            var metadata = new SegmentMetadata
+            try
             {
-                SegmentId = segmentId,
-                FileName = Path.GetFileName(filePath),
-                RecordCount = recordCount,
-                FileSizeBytes = fileSize,
-                CreatedAt = DateTime.UtcNow,
-                LastModified = DateTime.UtcNow,
-                IsActive = true
-            };
+                var id = Guid.NewGuid().ToString();
+                var segment = await GetOrCreateActiveSegmentAsync();
 
-            _segmentCache.AddOrUpdate(segmentId, metadata, (key, old) => metadata);
-        }
+                await segment.StoreAsync(id, data);
 
-        private async Task LoadSegmentMetadataAsync()
-        {
-            var segmentIds = await GetAllSegmentIdsAsync();
-            foreach (var segmentId in segmentIds)
-            {
-                var filePath = GetSegmentFilePath(segmentId);
-                if (await _fileHandler.ExistsAsync(filePath))
+                operation.MarkSuccess();
+
+                AuditLogger.Log("SEGMENT_DATA_STORED", new
                 {
-                    var fileSize = await _fileHandler.GetFileSizeAsync(filePath);
-                    // Load basic metadata - detailed loading would require reading segment content
-                    var metadata = new SegmentMetadata
-                    {
-                        SegmentId = segmentId,
-                        FileName = Path.GetFileName(filePath),
-                        FileSizeBytes = fileSize,
-                        IsActive = true
-                    };
-                    _segmentCache.TryAdd(segmentId, metadata);
-                }
-            }
+                    EntityName = _entityName,
+                    SegmentName = segment.Name,
+                    DataId = id,
+                    DataSize = data.Length
+                }, AuditCategory.Database);
 
-            // Set current active segment to highest ID + 1
-            if (segmentIds.Any())
+                return id;
+            }
+            catch (Exception ex)
             {
-                _currentActiveSegment = segmentIds.Max() + 1;
+                operation.MarkFailure();
+                AuditLogger.LogError("SEGMENT_STORE_FAILED", ex, new { EntityName = _entityName });
+                throw;
             }
         }
 
-        private async Task PerformSegmentCompactionAsync(List<int> segmentIds)
+        /// <summary>
+        /// Retrieve data from segments
+        /// </summary>
+        public async Task<string?> RetrieveAsync(string id)
         {
-            // This is a simplified compaction - in practice you'd want to:
-            // 1. Read all records from segments to compact
-            // 2. Merge them into fewer segments
-            // 3. Delete old segments
-            // 4. Update indexes
+            ThrowIfDisposed();
 
-            await AuditLogger.LogAsync($"Segment compaction performed for entity {_entityName}",
-                new { CompactedSegments = segmentIds });
+            using var operation = PerformanceTracker.StartOperation("SegmentRetrieve", "Storage");
+
+            try
+            {
+                lock (_lock)
+                {
+                    foreach (var segment in _activeSegments.Values)
+                    {
+                        var data = segment.RetrieveAsync(id).Result;
+                        if (data != null)
+                        {
+                            operation.MarkSuccess();
+
+                            AuditLogger.Log("SEGMENT_DATA_RETRIEVED", new
+                            {
+                                EntityName = _entityName,
+                                SegmentName = segment.Name,
+                                DataId = id
+                            }, AuditCategory.Database);
+
+                            return data;
+                        }
+                    }
+                }
+
+                operation.MarkSuccess();
+                return null;
+            }
+            catch (Exception ex)
+            {
+                operation.MarkFailure();
+                AuditLogger.LogError("SEGMENT_RETRIEVE_FAILED", ex, new { EntityName = _entityName, DataId = id });
+                throw;
+            }
         }
 
-        #endregion
+        /// <summary>
+        /// Flush all segments
+        /// </summary>
+        public async Task FlushAsync()
+        {
+            ThrowIfDisposed();
 
-        #region DISPOSAL
+            using var operation = PerformanceTracker.StartOperation("SegmentFlush", "Storage");
+
+            try
+            {
+                var flushTasks = new List<Task>();
+
+                lock (_lock)
+                {
+                    foreach (var segment in _activeSegments.Values)
+                    {
+                        flushTasks.Add(segment.FlushAsync());
+                    }
+                }
+
+                if (flushTasks.Any())
+                {
+                    await Task.WhenAll(flushTasks);
+                }
+
+                operation.MarkSuccess();
+
+                AuditLogger.Log("SEGMENTS_FLUSHED", new
+                {
+                    EntityName = _entityName,
+                    SegmentCount = _activeSegments.Count
+                }, AuditCategory.Database);
+            }
+            catch (Exception ex)
+            {
+                operation.MarkFailure();
+                AuditLogger.LogError("SEGMENT_FLUSH_FAILED", ex, new { EntityName = _entityName });
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Get or create an active segment for writing
+        /// </summary>
+        private async Task<Segment> GetOrCreateActiveSegmentAsync()
+        {
+            lock (_lock)
+            {
+                // Find a segment that has space
+                foreach (var segment in _activeSegments.Values)
+                {
+                    if (segment.HasSpace)
+                    {
+                        return segment;
+                    }
+                }
+
+                // Create new segment
+                var segmentName = $"seg_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}";
+                var segmentPath = Path.Combine(_segmentDirectory, $"{segmentName}.seg");
+                var newSegment = new Segment(segmentName, segmentPath, _config, _fileHandler);
+
+                newSegment.InitializeAsync().Wait();
+                _activeSegments[segmentName] = newSegment;
+
+                return newSegment;
+            }
+        }
 
         public void Dispose()
         {
-            if (!_disposed)
+            if (_disposed) return;
+
+            try
             {
-                _segmentLock?.Dispose();
-                _entityMetadataManager?.Dispose();
+                FlushAsync().Wait(TimeSpan.FromSeconds(30));
+
+                lock (_lock)
+                {
+                    foreach (var segment in _activeSegments.Values)
+                    {
+                        segment.Dispose();
+                    }
+                    _activeSegments.Clear();
+                }
+
                 _disposed = true;
+
+                AuditLogger.Log("SEGMENT_MANAGER_DISPOSED", new { EntityName = _entityName }, AuditCategory.Database);
+            }
+            catch (Exception ex)
+            {
+                AuditLogger.LogError("SEGMENT_MANAGER_DISPOSE_FAILED", ex, new { EntityName = _entityName });
             }
         }
 
-        #endregion
+        private void ThrowIfDisposed()
+        {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(SegmentManager));
+            }
+        }
     }
-}

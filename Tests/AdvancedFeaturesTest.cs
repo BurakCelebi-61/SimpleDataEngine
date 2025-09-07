@@ -1,10 +1,8 @@
-﻿using SimpleDataEngine.Security;
-using SimpleDataEngine.DatabaseExport;
+﻿using SimpleDataEngine.DatabaseExport;
 using SimpleDataEngine.DatabaseExport.Converters;
-using SimpleDataEngine.Versioning;
 using SimpleDataEngine.Repositories;
-using SimpleDataEngine.Core;
-using SimpleDataEngine.Tests;
+using SimpleDataEngine.Security;
+using SimpleDataEngine.Versioning;
 
 namespace SimpleDataEngine.Tests
 {

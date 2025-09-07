@@ -29,11 +29,9 @@ namespace SimpleDataEngine.Security
             }
 
             // Default: Advanced cryptographic key generation
-            using (var sha256 = SHA256.Create())
-            {
-                var combined = CryptoSeed.Concat(BitConverter.GetBytes(DateTime.UtcNow.Ticks)).ToArray();
-                return sha256.ComputeHash(combined);
-            }
+            using var sha256 = SHA256.Create();
+            var combined = CryptoSeed.Concat(BitConverter.GetBytes(DateTime.UtcNow.Ticks)).ToArray();
+            return sha256.ComputeHash(combined);
         }
 
         /// <summary>
@@ -49,10 +47,8 @@ namespace SimpleDataEngine.Security
             var passwordBytes = Encoding.UTF8.GetBytes(password);
             var salt = CryptoSeed.Concat(passwordBytes.Take(8)).ToArray();
 
-            using (var pbkdf2 = new Rfc2898DeriveBytes(passwordBytes, salt, iterations, HashAlgorithmName.SHA256))
-            {
-                return pbkdf2.GetBytes(keySize / 8);
-            }
+            using var pbkdf2 = new Rfc2898DeriveBytes(passwordBytes, salt, iterations, HashAlgorithmName.SHA256);
+            return pbkdf2.GetBytes(keySize / 8);
         }
 
         /// <summary>
@@ -62,12 +58,10 @@ namespace SimpleDataEngine.Security
         /// <returns>Random salt</returns>
         public static byte[] GenerateSalt(int size = 16)
         {
-            using (var rng = RandomNumberGenerator.Create())
-            {
-                var salt = new byte[size];
-                rng.GetBytes(salt);
-                return salt;
-            }
+            using var rng = RandomNumberGenerator.Create();
+            var salt = new byte[size];
+            rng.GetBytes(salt);
+            return salt;
         }
 
         /// <summary>
@@ -77,12 +71,10 @@ namespace SimpleDataEngine.Security
         /// <returns>Random IV</returns>
         public static byte[] GenerateIV(int size = 16)
         {
-            using (var rng = RandomNumberGenerator.Create())
-            {
-                var iv = new byte[size];
-                rng.GetBytes(iv);
-                return iv;
-            }
+            using var rng = RandomNumberGenerator.Create();
+            var iv = new byte[size];
+            rng.GetBytes(iv);
+            return iv;
         }
 
         /// <summary>

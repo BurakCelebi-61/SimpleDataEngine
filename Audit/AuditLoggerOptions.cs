@@ -1,22 +1,17 @@
 ﻿namespace SimpleDataEngine.Audit
 {
     /// <summary>
-    /// Audit logger configuration
+    /// Configuration options for audit logger
     /// </summary>
     public class AuditLoggerOptions
     {
-        public bool Enabled { get; set; } = true;
-        public AuditLevel MinimumLevel { get; set; } = AuditLevel.Info;
-        public string LogDirectory { get; set; }
-        public string FileNameFormat { get; set; } = "audit_{0:yyyyMMdd}.json";
-        public int MaxLogFileSizeMB { get; set; } = 50;
-        public int MaxLogFiles { get; set; } = 30;
-        public bool IncludeStackTrace { get; set; } = false;
-        public bool IncludeSystemInfo { get; set; } = true;
-        public bool AsyncLogging { get; set; } = true;
-        public int BufferSize { get; set; } = 100;
-        public TimeSpan FlushInterval { get; set; } = TimeSpan.FromSeconds(5);
+        public string? LogDirectory { get; set; } = "logs";
+        public string FileNameFormat { get; set; } = "audit-{0:yyyy-MM-dd}.log";
+        public int MaxFileSizeMB { get; set; } = 100;
+        public int MaxFiles { get; set; } = 30;
         public bool CompressOldLogs { get; set; } = true;
-        public bool AutoCleanup { get; set; } = true;
+        public TimeSpan FlushInterval { get; set; } = TimeSpan.FromSeconds(5);
+        public int MaxBufferedEntries { get; set; } = 1000;
+        public bool EnableAsyncFlush { get; set; } = true;
     }
 }

@@ -1,84 +1,19 @@
-﻿using System.Text.Json;
-
-namespace SimpleDataEngine.Audit
+﻿namespace SimpleDataEngine.Audit
 {
     /// <summary>
-    /// Console audit target - long to int conversion hatası düzeltildi
+    /// Console-based audit target implementation
     /// </summary>
-    public class ConsoleAuditTarget : IAuditTarget, ISyncAuditTarget, IFlushable
+    public class ConsoleAuditTarget : IAuditTarget, ISyncAuditTarget
     {
-        private readonly ConsoleColor _defaultColor = Console.ForegroundColor;
-        private readonly object _lock = new object();
-        private readonly JsonSerializerOptions _jsonOptions;
+        private readonly bool _useColors;
+        private readonly bool _includeTimestamp;
+        private readonly bool _includeCategory;
 
-        public ConsoleAuditTarget()
+        public ConsoleAuditTarget(bool useColors = true, bool includeTimestamp = true, bool includeCategory = true)
         {
-            _jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-        }
-
-        public void Write(AuditLogEntry entry)
-        {
-            if (entry == null) return;
-
-            lock (_lock)
-            {
-                try
-                {
-                    // Set console color based on audit level
-                    SetConsoleColor(entry.Level);
-
-                    // Format the log entry
-                    var timestamp = entry.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff");
-                    var level = entry.Level.ToString().ToUpper().PadRight(7);
-                    var category = entry.Category.ToString().PadRight(12);
-
-                    // Thread ID conversion fixed - long to int explicit cast
-                    var threadId = entry.ThreadId.HasValue ? ((int)entry.ThreadId.Value).ToString() : "N/A";
-
-                    Console.WriteLine($"[{timestamp}] [{level}] [{category}] [T:{threadId}] {entry.Message}");
-
-                    // Print additional data if present
-                    if (entry.Data != null)
-                    {
-                        Console.WriteLine("  Data:");
-                        var dataJson = JsonSerializer.Serialize(entry.Data, _jsonOptions);
-                        var dataLines = dataJson.Split('\n');
-                        foreach (var line in dataLines)
-                        {
-                            Console.WriteLine($"    {line}");
-                        }
-                    }
-
-                    // Print exception if present
-                    if (!string.IsNullOrEmpty(entry.Exception))
-                    {
-                        Console.WriteLine("  Exception:");
-                        var exceptionLines = entry.Exception.Split('\n');
-                        foreach (var line in exceptionLines)
-                        {
-                            Console.WriteLine($"    {line}");
-                        }
-                    }
-
-                    Console.WriteLine(); // Empty line for readability
-                }
-                catch (Exception ex)
-                {
-                    // Fallback error logging
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"[CONSOLE AUDIT ERROR] Failed to write log entry: {ex.Message}");
-                    Console.WriteLine($"  Original message: {entry.Message}");
-                }
-                finally
-                {
-                    // Reset console color
-                    Console.ForegroundColor = _defaultColor;
-                }
-            }
+            _useColors = useColors;
+            _includeTimestamp = includeTimestamp;
+            _includeCategory = includeCategory;
         }
 
         public async Task WriteAsync(AuditLogEntry entry)
@@ -86,95 +21,63 @@ namespace SimpleDataEngine.Audit
             await Task.Run(() => Write(entry));
         }
 
-        public void Flush()
+        public void Write(AuditLogEntry entry)
         {
-            lock (_lock)
+            var message = FormatMessage(entry);
+
+            if (_useColors)
             {
-                try
-                {
-                    Console.Out.Flush();
-                    Console.Error.Flush();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[CONSOLE AUDIT ERROR] Failed to flush console: {ex.Message}");
-                }
+                WriteColoredMessage(entry.Level, message);
+            }
+            else
+            {
+                Console.WriteLine(message);
             }
         }
 
-        private void SetConsoleColor(AuditLevel level)
+        private string FormatMessage(AuditLogEntry entry)
         {
-            switch (level)
+            var parts = new List<string>();
+
+            if (_includeTimestamp)
             {
-                case AuditLevel.Debug:
-                    Console.ForegroundColor = ConsoleColor.Gray;
-                    break;
-                case AuditLevel.Information:
-                    Console.ForegroundColor = ConsoleColor.White;
-                    break;
-                case AuditLevel.Warning:
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    break;
-                case AuditLevel.Error:
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    break;
-                case AuditLevel.Critical:
-                    Console.ForegroundColor = ConsoleColor.Magenta;
-                    break;
-                default:
-                    Console.ForegroundColor = _defaultColor;
-                    break;
+                parts.Add($"[{entry.Timestamp:yyyy-MM-dd HH:mm:ss}]");
             }
+
+            parts.Add($"[{entry.Level.ToString().ToUpper()}]");
+
+            if (_includeCategory)
+            {
+                parts.Add($"[{entry.Category}]");
+            }
+
+            parts.Add(entry.Message);
+
+            return string.Join(" ", parts);
         }
 
-        // Utility method for compact formatting
-        public void WriteCompact(AuditLogEntry entry)
+        private void WriteColoredMessage(AuditLevel level, string message)
         {
-            if (entry == null) return;
+            var originalColor = Console.ForegroundColor;
 
-            lock (_lock)
+            try
             {
-                try
+                // Set color based on level
+                Console.ForegroundColor = level switch
                 {
-                    SetConsoleColor(entry.Level);
+                    AuditLevel.Debug => ConsoleColor.Gray,
+                    AuditLevel.Information => ConsoleColor.White,
+                    AuditLevel.Warning => ConsoleColor.Yellow,
+                    AuditLevel.Error => ConsoleColor.Red,
+                    AuditLevel.Critical => ConsoleColor.Magenta,
+                    _ => ConsoleColor.White
+                };
 
-                    var timestamp = entry.Timestamp.ToString("HH:mm:ss.fff");
-                    var level = entry.Level.ToString().Substring(0, 1); // Single character
-                    var category = entry.Category.ToString().Substring(0, Math.Min(3, entry.Category.ToString().Length)).ToUpper();
-
-                    // Fixed conversion - explicit cast from long to int
-                    var threadId = entry.ThreadId.HasValue ? ((int)entry.ThreadId.Value).ToString() : "0";
-
-                    Console.WriteLine($"{timestamp} {level} {category} T{threadId} {entry.Message}");
-                }
-                catch (Exception ex)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine($"[CONSOLE ERROR] {ex.Message}: {entry.Message}");
-                }
-                finally
-                {
-                    Console.ForegroundColor = _defaultColor;
-                }
+                Console.WriteLine(message);
             }
-        }
-
-        // Utility method for JSON only output
-        public void WriteJsonOnly(AuditLogEntry entry)
-        {
-            if (entry == null) return;
-
-            lock (_lock)
+            finally
             {
-                try
-                {
-                    var json = JsonSerializer.Serialize(entry, _jsonOptions);
-                    Console.WriteLine(json);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"{{\"error\": \"Failed to serialize audit entry: {ex.Message}\", \"originalMessage\": \"{entry.Message}\"}}");
-                }
+                Console.ForegroundColor = originalColor;
             }
         }
     }

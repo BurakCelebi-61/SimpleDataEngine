@@ -1,335 +1,123 @@
-﻿using SimpleDataEngine.Audit;
-using System.IO.Compression;
+﻿using SimpleDataEngine.Security;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace SimpleDataEngine.Security
+namespace SimpleDataEngine.Storage.Hierarchical
 {
     /// <summary>
-    /// Advanced encryption service for SimpleDataEngine
+    /// Encryption service for database operations
     /// </summary>
     public class EncryptionService : IDisposable
     {
-        private readonly byte[] _key;
         private readonly EncryptionConfig _config;
+        private readonly byte[] _key;
+        private readonly byte[] _iv;
         private bool _disposed = false;
 
-        /// <summary>
-        /// Initializes encryption service with configuration
-        /// </summary>
-        /// <param name="config">Encryption configuration</param>
         public EncryptionService(EncryptionConfig config)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
-            _key = CryptoKeyGenerator.GenerateSecureKey(
-                config.CustomPassword,
-                GetKeySize(config.EncryptionType),
-                config.KeyDerivationIterations);
 
-            if (!CryptoKeyGenerator.ValidateKeyEntropy(_key))
-            {
-                throw new InvalidOperationException("Generated encryption key has insufficient entropy");
-            }
-
-            AuditLogger.Log("ENCRYPTION_SERVICE_INITIALIZED", new
-            {
-                EncryptionType = config.EncryptionType,
-                CompressionEnabled = config.CompressBeforeEncrypt,
-                IntegrityCheckEnabled = config.IncludeIntegrityCheck
-            }, category: AuditCategory.Security);
+            // Generate or derive key and IV based on configuration
+            _key = DeriveKey(config.EncryptionKey ?? "DefaultKey", 32);
+            _iv = DeriveKey(config.EncryptionKey ?? "DefaultKey", 16);
         }
 
         /// <summary>
-        /// Encrypts string data
+        /// Encrypt string data
         /// </summary>
-        /// <param name="data">Data to encrypt</param>
-        /// <returns>Encrypted data as byte array</returns>
-        public byte[] Encrypt(string data)
+        public async Task<string> EncryptAsync(string plainText)
         {
-            if (string.IsNullOrEmpty(data))
-                return Array.Empty<byte>();
+            if (string.IsNullOrEmpty(plainText))
+                return plainText;
 
-            try
-            {
-                byte[] dataBytes = Encoding.UTF8.GetBytes(data);
-
-                if (_config.CompressBeforeEncrypt)
-                {
-                    dataBytes = CompressData(dataBytes);
-                }
-
-                var encryptedData = PerformEncryption(dataBytes);
-
-                AuditLogger.Log("DATA_ENCRYPTED", new
-                {
-                    OriginalSize = data.Length,
-                    CompressedSize = dataBytes.Length,
-                    EncryptedSize = encryptedData.Length,
-                    CompressionRatio = _config.CompressBeforeEncrypt ? (double)dataBytes.Length / data.Length : 1.0
-                }, category: AuditCategory.Security);
-
-                return encryptedData;
-            }
-            catch (Exception ex)
-            {
-                AuditLogger.LogError("ENCRYPTION_FAILED", ex, category: AuditCategory.Security);
-                throw new InvalidOperationException("Failed to encrypt data", ex);
-            }
+            var plainBytes = Encoding.UTF8.GetBytes(plainText);
+            var encryptedBytes = await EncryptBytesAsync(plainBytes);
+            return Convert.ToBase64String(encryptedBytes);
         }
 
         /// <summary>
-        /// Decrypts data back to string
+        /// Decrypt string data
         /// </summary>
-        /// <param name="encryptedData">Encrypted data</param>
-        /// <returns>Decrypted string</returns>
-        public string Decrypt(byte[] encryptedData)
+        public async Task<string> DecryptAsync(string encryptedText)
         {
-            if (encryptedData == null || encryptedData.Length == 0)
-                return string.Empty;
+            if (string.IsNullOrEmpty(encryptedText))
+                return encryptedText;
 
-            try
-            {
-                byte[] decryptedBytes = PerformDecryption(encryptedData);
-
-                if (_config.CompressBeforeEncrypt)
-                {
-                    decryptedBytes = DecompressData(decryptedBytes);
-                }
-
-                var result = Encoding.UTF8.GetString(decryptedBytes);
-
-                AuditLogger.Log("DATA_DECRYPTED", new
-                {
-                    EncryptedSize = encryptedData.Length,
-                    DecryptedSize = result.Length
-                }, category: AuditCategory.Security);
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                AuditLogger.LogError("DECRYPTION_FAILED", ex, category: AuditCategory.Security);
-                throw new InvalidOperationException("Failed to decrypt data", ex);
-            }
+            var encryptedBytes = Convert.FromBase64String(encryptedText);
+            var plainBytes = await DecryptBytesAsync(encryptedBytes);
+            return Encoding.UTF8.GetString(plainBytes);
         }
 
         /// <summary>
-        /// Validates if data can be decrypted (integrity check)
+        /// Encrypt byte array
         /// </summary>
-        /// <param name="encryptedData">Encrypted data to validate</param>
-        /// <returns>True if data can be decrypted</returns>
-        public bool ValidateIntegrity(byte[] encryptedData)
+        public async Task<byte[]> EncryptBytesAsync(byte[] plainBytes)
         {
-            try
+            if (plainBytes == null || plainBytes.Length == 0)
+                return plainBytes;
+
+            return await Task.Run(() =>
             {
-                Decrypt(encryptedData);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
+                using var aes = Aes.Create();
+                aes.Key = _key;
+                aes.IV = _iv;
+
+                using var encryptor = aes.CreateEncryptor();
+                using var memoryStream = new MemoryStream();
+                using var cryptoStream = new CryptoStream(memoryStream, encryptor, CryptoStreamMode.Write);
+
+                cryptoStream.Write(plainBytes, 0, plainBytes.Length);
+                cryptoStream.FlushFinalBlock();
+
+                return memoryStream.ToArray();
+            });
         }
 
         /// <summary>
-        /// Gets encryption metadata
+        /// Decrypt byte array
         /// </summary>
-        /// <returns>Encryption metadata</returns>
-        public EncryptionMetadata GetMetadata()
+        public async Task<byte[]> DecryptBytesAsync(byte[] encryptedBytes)
         {
-            return new EncryptionMetadata
+            if (encryptedBytes == null || encryptedBytes.Length == 0)
+                return encryptedBytes;
+
+            return await Task.Run(() =>
             {
-                EncryptionType = _config.EncryptionType,
-                CompressionEnabled = _config.CompressBeforeEncrypt,
-                IntegrityCheckEnabled = _config.IncludeIntegrityCheck,
-                KeySize = GetKeySize(_config.EncryptionType),
-                CreatedAt = DateTime.Now
-            };
+                using var aes = Aes.Create();
+                aes.Key = _key;
+                aes.IV = _iv;
+
+                using var decryptor = aes.CreateDecryptor();
+                using var memoryStream = new MemoryStream(encryptedBytes);
+                using var cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read);
+                using var resultStream = new MemoryStream();
+
+                cryptoStream.CopyTo(resultStream);
+                return resultStream.ToArray();
+            });
         }
 
-        #region Private Methods
-
-        private byte[] PerformEncryption(byte[] data)
+        /// <summary>
+        /// Derive key from password
+        /// </summary>
+        private byte[] DeriveKey(string password, int keyLength)
         {
-            return _config.EncryptionType switch
-            {
-                EncryptionType.AES128 or EncryptionType.AES256 => EncryptAES(data),
-                EncryptionType.ChaCha20 => EncryptChaCha20(data),
-                _ => throw new NotSupportedException($"Encryption type {_config.EncryptionType} is not supported")
-            };
+            var salt = Encoding.UTF8.GetBytes("SimpleDataEngine"); // Fixed salt for simplicity
+
+            using var rfc2898 = new Rfc2898DeriveBytes(password, salt, 10000, HashAlgorithmName.SHA256);
+            return rfc2898.GetBytes(keyLength);
         }
-
-        private byte[] PerformDecryption(byte[] encryptedData)
-        {
-            return _config.EncryptionType switch
-            {
-                EncryptionType.AES128 or EncryptionType.AES256 => DecryptAES(encryptedData),
-                EncryptionType.ChaCha20 => DecryptChaCha20(encryptedData),
-                _ => throw new NotSupportedException($"Encryption type {_config.EncryptionType} is not supported")
-            };
-        }
-
-        private byte[] EncryptAES(byte[] data)
-        {
-            using var aes = Aes.Create();
-            aes.Key = _key;
-            aes.GenerateIV();
-
-            using var encryptor = aes.CreateEncryptor();
-            using var msEncrypt = new MemoryStream();
-
-            // Write IV first
-            msEncrypt.Write(aes.IV, 0, aes.IV.Length);
-
-            // Write encrypted data
-            using (var csEncrypt = new CryptoStream(msEncrypt, encryptor, CryptoStreamMode.Write))
-            {
-                csEncrypt.Write(data, 0, data.Length);
-            }
-
-            var result = msEncrypt.ToArray();
-
-            // Add integrity check if enabled
-            if (_config.IncludeIntegrityCheck)
-            {
-                result = AddIntegrityCheck(result);
-            }
-
-            return result;
-        }
-
-        private byte[] DecryptAES(byte[] encryptedData)
-        {
-            // Remove integrity check if present
-            if (_config.IncludeIntegrityCheck)
-            {
-                encryptedData = ValidateAndRemoveIntegrityCheck(encryptedData);
-            }
-
-            using var aes = Aes.Create();
-            aes.Key = _key;
-
-            // Extract IV
-            byte[] iv = new byte[16];
-            Array.Copy(encryptedData, 0, iv, 0, 16);
-            aes.IV = iv;
-
-            using var decryptor = aes.CreateDecryptor();
-            using var msDecrypt = new MemoryStream(encryptedData, 16, encryptedData.Length - 16);
-            using var csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read);
-            using var msOutput = new MemoryStream();
-
-            csDecrypt.CopyTo(msOutput);
-            return msOutput.ToArray();
-        }
-
-        private byte[] EncryptChaCha20(byte[] data)
-        {
-            // ChaCha20 implementation would go here
-            // For now, fall back to AES
-            return EncryptAES(data);
-        }
-
-        private byte[] DecryptChaCha20(byte[] encryptedData)
-        {
-            // ChaCha20 implementation would go here
-            // For now, fall back to AES
-            return DecryptAES(encryptedData);
-        }
-
-        private byte[] CompressData(byte[] data)
-        {
-            using var output = new MemoryStream();
-            using (var gzip = new GZipStream(output, CompressionMode.Compress, true))
-            {
-                gzip.Write(data, 0, data.Length);
-            }
-            return output.ToArray();
-        }
-
-        private byte[] DecompressData(byte[] compressedData)
-        {
-            using var input = new MemoryStream(compressedData);
-            using var gzip = new GZipStream(input, CompressionMode.Decompress);
-            using var output = new MemoryStream();
-
-            gzip.CopyTo(output);
-            return output.ToArray();
-        }
-
-        private byte[] AddIntegrityCheck(byte[] data)
-        {
-            using var hmac = new HMACSHA256(_key);
-            var hash = hmac.ComputeHash(data);
-
-            var result = new byte[data.Length + hash.Length];
-            Array.Copy(data, 0, result, 0, data.Length);
-            Array.Copy(hash, 0, result, data.Length, hash.Length);
-
-            return result;
-        }
-
-        private byte[] ValidateAndRemoveIntegrityCheck(byte[] dataWithHash)
-        {
-            const int hashSize = 32; // SHA256 hash size
-
-            if (dataWithHash.Length < hashSize)
-                throw new InvalidOperationException("Data too short to contain integrity check");
-
-            var dataLength = dataWithHash.Length - hashSize;
-            var data = new byte[dataLength];
-            var providedHash = new byte[hashSize];
-
-            Array.Copy(dataWithHash, 0, data, 0, dataLength);
-            Array.Copy(dataWithHash, dataLength, providedHash, 0, hashSize);
-
-            using var hmac = new HMACSHA256(_key);
-            var computedHash = hmac.ComputeHash(data);
-
-            if (!computedHash.SequenceEqual(providedHash))
-                throw new InvalidOperationException("Data integrity check failed");
-
-            return data;
-        }
-
-        private static int GetKeySize(EncryptionType encryptionType)
-        {
-            return encryptionType switch
-            {
-                EncryptionType.AES128 => 128,
-                EncryptionType.AES256 => 256,
-                EncryptionType.ChaCha20 => 256,
-                _ => 256
-            };
-        }
-
-        #endregion
 
         public void Dispose()
         {
-            if (!_disposed)
-            {
-                // Clear sensitive data
-                if (_key != null)
-                {
-                    Array.Clear(_key, 0, _key.Length);
-                }
+            if (_disposed) return;
 
-                AuditLogger.Log("ENCRYPTION_SERVICE_DISPOSED", category: AuditCategory.Security);
-                _disposed = true;
-            }
+            // Clear sensitive data
+            Array.Clear(_key, 0, _key.Length);
+            Array.Clear(_iv, 0, _iv.Length);
+
+            _disposed = true;
         }
-    }
-
-    /// <summary>
-    /// Encryption metadata information
-    /// </summary>
-    public class EncryptionMetadata
-    {
-        public EncryptionType EncryptionType { get; set; }
-        public bool CompressionEnabled { get; set; }
-        public bool IntegrityCheckEnabled { get; set; }
-        public int KeySize { get; set; }
-        public DateTime CreatedAt { get; set; }
     }
 }

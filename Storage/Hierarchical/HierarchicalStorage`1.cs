@@ -1,8 +1,6 @@
 ﻿using SimpleDataEngine.Audit;
-using SimpleDataEngine.Storage.Hierarchical.Models;
 using SimpleDataEngine.Storage.Hierarchical.Managers;
 using System.Linq.Expressions;
-using SimpleDataEngine.Storage.Hierarchical.SimpleDataEngine.Storage.Hierarchical.Managers;
 
 namespace SimpleDataEngine.Storage.Hierarchical
 {
@@ -675,21 +673,5 @@ namespace SimpleDataEngine.Storage.Hierarchical
         #endregion
     }
 
-    #region Supporting Models
 
-    /// <summary>
-    /// Storage statistics information
-    /// </summary>
-    public class StorageStatistics
-    {
-        public string EntityName { get; set; }
-        public long TotalRecords { get; set; }
-        public int TotalSegments { get; set; }
-        public long TotalSizeBytes { get; set; }
-        public IndexStatistics IndexStatistics { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public DateTime LastModified { get; set; }
-    }
-
-    #endregion
 }

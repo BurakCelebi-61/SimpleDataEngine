@@ -3,7 +3,7 @@
 namespace SimpleDataEngine.Performance
 {
     /// <summary>
-    /// Performance report generator - Eksik GenerateReport metodu eklendi
+    /// Performance report generator - Fixed all issues
     /// </summary>
     public static class PerformanceReportGenerator
     {
@@ -11,7 +11,7 @@ namespace SimpleDataEngine.Performance
         private static readonly object _lock = new object();
 
         /// <summary>
-        /// EKSIK OLAN METHOD - Generate performance report for specified time span
+        /// Generate performance report for specified time span
         /// </summary>
         /// <param name="timeSpan">Time span to analyze</param>
         /// <returns>Performance report</returns>
@@ -122,7 +122,7 @@ namespace SimpleDataEngine.Performance
         {
             var report = new PerformanceReport
             {
-                TimeSpan = timeSpan,
+                ReportPeriod = timeSpan,
                 GeneratedAt = DateTime.UtcNow,
                 TotalOperations = metrics.Count
             };
@@ -138,22 +138,12 @@ namespace SimpleDataEngine.Performance
 
             report.SuccessfulOperations = successfulOperations.Count;
             report.FailedOperations = failedOperations.Count;
-            report.OverallSuccessRate = (double)successfulOperations.Count / metrics.Count * 100;
+            report.OverallSuccessRate = metrics.Count > 0 ? (double)successfulOperations.Count / metrics.Count * 100.0 : 0.0;
 
-            // Calculate timing statistics
-            if (successfulOperations.Count > 0)
+            // Calculate average operation time
+            if (metrics.Count > 0)
             {
-                var durations = successfulOperations.Select(m => m.Duration.TotalMilliseconds).ToList();
-
-                report.AverageOperationTimeMs = durations.Average();
-                report.MinOperationTimeMs = durations.Min();
-                report.MaxOperationTimeMs = durations.Max();
-
-                // Calculate percentiles
-                durations.Sort();
-                report.P50OperationTimeMs = GetPercentile(durations, 0.5);
-                report.P95OperationTimeMs = GetPercentile(durations, 0.95);
-                report.P99OperationTimeMs = GetPercentile(durations, 0.99);
+                report.AverageOperationTimeMs = metrics.Average(m => m.Duration.TotalMilliseconds);
             }
 
             // Calculate operations per second
@@ -162,88 +152,72 @@ namespace SimpleDataEngine.Performance
                 report.OperationsPerSecond = metrics.Count / timeSpan.TotalSeconds;
             }
 
-            // Group by category
-            report.CategoryBreakdown = metrics
-                .GroupBy(m => m.Category)
-                .ToDictionary(
-                    g => g.Key,
-                    g => new CategoryStatistics
-                    {
-                        TotalOperations = g.Count(),
-                        SuccessfulOperations = g.Count(m => m.Success),
-                        FailedOperations = g.Count(m => !m.Success),
-                        AverageTimeMs = g.Where(m => m.Success).Select(m => m.Duration.TotalMilliseconds).DefaultIfEmpty().Average(),
-                        SuccessRate = g.Count(m => m.Success) / (double)g.Count() * 100
-                    });
-
-            // Group by operation name
-            report.OperationBreakdown = metrics
-                .GroupBy(m => m.OperationName)
-                .ToDictionary(
-                    g => g.Key,
-                    g => new OperationStatistics
-                    {
-                        TotalCalls = g.Count(),
-                        SuccessfulCalls = g.Count(m => m.Success),
-                        FailedCalls = g.Count(m => !m.Success),
-                        AverageTimeMs = g.Where(m => m.Success).Select(m => m.Duration.TotalMilliseconds).DefaultIfEmpty().Average(),
-                        MinTimeMs = g.Where(m => m.Success).Select(m => m.Duration.TotalMilliseconds).DefaultIfEmpty().Min(),
-                        MaxTimeMs = g.Where(m => m.Success).Select(m => m.Duration.TotalMilliseconds).DefaultIfEmpty().Max(),
-                        SuccessRate = g.Count(m => m.Success) / (double)g.Count() * 100
-                    });
-
-            // Identify slow operations (above 95th percentile)
-            if (report.P95OperationTimeMs > 0)
+            // Generate category statistics
+            var categoryGroups = metrics.GroupBy(m => m.Category);
+            foreach (var group in categoryGroups)
             {
-                report.SlowOperations = successfulOperations
-                    .Where(m => m.Duration.TotalMilliseconds > report.P95OperationTimeMs)
-                    .Select(m => new SlowOperation
-                    {
-                        OperationName = m.OperationName,
-                        Category = m.Category,
-                        Duration = m.Duration,
-                        Timestamp = m.Timestamp
-                    })
-                    .OrderByDescending(so => so.Duration)
-                    .Take(10)
-                    .ToList();
+                var categoryMetrics = group.ToList();
+                var categorySuccessful = categoryMetrics.Count(m => m.Success);
+
+                report.CategoryStats[group.Key] = new CategoryStatistics
+                {
+                    TotalOperations = categoryMetrics.Count,
+                    SuccessfulOperations = categorySuccessful,
+                    FailedOperations = categoryMetrics.Count - categorySuccessful,
+                    AverageTimeMs = categoryMetrics.Average(m => m.Duration.TotalMilliseconds),
+                    SuccessRate = categoryMetrics.Count > 0 ? (double)categorySuccessful / categoryMetrics.Count * 100.0 : 0.0
+                };
             }
+
+            // Generate operation statistics
+            var operationGroups = metrics.GroupBy(m => m.OperationName);
+            foreach (var group in operationGroups)
+            {
+                var operationMetrics = group.ToList();
+                var operationSuccessful = operationMetrics.Count(m => m.Success);
+                var operationFailed = operationMetrics.Count(m => !m.Success);
+
+                report.OperationStats[group.Key] = new OperationStatistics
+                {
+                    TotalCalls = operationMetrics.Count,
+                    SuccessfulCalls = operationSuccessful,
+                    FailedCalls = operationFailed,
+                    AverageTimeMs = operationMetrics.Average(m => m.Duration.TotalMilliseconds),
+                    MinTimeMs = operationMetrics.Min(m => m.Duration.TotalMilliseconds),
+                    MaxTimeMs = operationMetrics.Max(m => m.Duration.TotalMilliseconds),
+                    SuccessRate = operationMetrics.Count > 0 ? (double)operationSuccessful / operationMetrics.Count * 100.0 : 0.0
+                };
+            }
+
+            // Find slow operations (> 1000ms)
+            report.SlowOperations = metrics
+                .Where(m => m.Duration.TotalMilliseconds > 1000)
+                .OrderByDescending(m => m.Duration.TotalMilliseconds)
+                .Take(10)
+                .ToList();
+
+            // Find failed operations
+            report.FailedOperationsList = failedOperations
+                .OrderByDescending(m => m.Timestamp)
+                .Take(10)
+                .ToList();
 
             return report;
         }
 
         /// <summary>
-        /// Calculate percentile from sorted list
-        /// </summary>
-        private static double GetPercentile(List<double> sortedValues, double percentile)
-        {
-            if (sortedValues.Count == 0) return 0;
-            if (sortedValues.Count == 1) return sortedValues[0];
-
-            double index = percentile * (sortedValues.Count - 1);
-            int lowerIndex = (int)Math.Floor(index);
-            int upperIndex = (int)Math.Ceiling(index);
-
-            if (lowerIndex == upperIndex)
-                return sortedValues[lowerIndex];
-
-            double weight = index - lowerIndex;
-            return sortedValues[lowerIndex] * (1 - weight) + sortedValues[upperIndex] * weight;
-        }
-
-        /// <summary>
-        /// Get top performing operations
+        /// Get best performing operations
         /// </summary>
         /// <param name="timeSpan">Time span to analyze</param>
-        /// <param name="count">Number of top operations to return</param>
-        /// <returns>Top performing operations</returns>
-        public static List<OperationStatistics> GetTopPerformingOperations(TimeSpan timeSpan, int count = 10)
+        /// <param name="count">Number of best operations to return</param>
+        /// <returns>Best performing operations</returns>
+        public static List<OperationStatistics> GetBestPerformingOperations(TimeSpan timeSpan, int count = 10)
         {
             var report = GenerateReport(timeSpan);
 
-            return report.OperationBreakdown.Values
+            return report.OperationStats.Values
+                .Where(op => op.SuccessRate > 95.0)
                 .OrderBy(op => op.AverageTimeMs)
-                .Where(op => op.SuccessRate > 90) // Only well-performing operations
                 .Take(count)
                 .ToList();
         }
@@ -258,7 +232,7 @@ namespace SimpleDataEngine.Performance
         {
             var report = GenerateReport(timeSpan);
 
-            return report.OperationBreakdown.Values
+            return report.OperationStats.Values
                 .OrderByDescending(op => op.AverageTimeMs)
                 .Take(count)
                 .ToList();
@@ -284,7 +258,7 @@ namespace SimpleDataEngine.Performance
                 AuditLogger.Log("PERFORMANCE_REPORT_EXPORTED", new
                 {
                     FilePath = filePath,
-                    ReportTimeSpan = report.TimeSpan,
+                    ReportTimeSpan = report.ReportPeriod,
                     TotalOperations = report.TotalOperations
                 }, AuditCategory.Performance);
             }
@@ -292,186 +266,6 @@ namespace SimpleDataEngine.Performance
             {
                 AuditLogger.LogError("PERFORMANCE_REPORT_EXPORT_FAILED", ex, new { FilePath = filePath });
                 throw;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Performance metric data structure
-    /// </summary>
-    public class PerformanceMetric
-    {
-        public string OperationName { get; set; } = string.Empty;
-        public string Category { get; set; } = string.Empty;
-        public TimeSpan Duration { get; set; }
-        public bool Success { get; set; }
-        public DateTime Timestamp { get; set; }
-        public Dictionary<string, object> AdditionalData { get; set; } = new Dictionary<string, object>();
-    }
-
-    /// <summary>
-    /// Performance report data structure
-    /// </summary>
-    public class PerformanceReport
-    {
-        public TimeSpan TimeSpan { get; set; }
-        public DateTime GeneratedAt { get; set; }
-        public int TotalOperations { get; set; }
-        public int SuccessfulOperations { get; set; }
-        public int FailedOperations { get; set; }
-        public double OverallSuccessRate { get; set; }
-        public double AverageOperationTimeMs { get; set; }
-        public double MinOperationTimeMs { get; set; }
-        public double MaxOperationTimeMs { get; set; }
-        public double P50OperationTimeMs { get; set; }
-        public double P95OperationTimeMs { get; set; }
-        public double P99OperationTimeMs { get; set; }
-        public double OperationsPerSecond { get; set; }
-        public Dictionary<string, CategoryStatistics> CategoryBreakdown { get; set; } = new Dictionary<string, CategoryStatistics>();
-        public Dictionary<string, OperationStatistics> OperationBreakdown { get; set; } = new Dictionary<string, OperationStatistics>();
-        public List<SlowOperation> SlowOperations { get; set; } = new List<SlowOperation>();
-
-        public override string ToString()
-        {
-            return $"PerformanceReport[Operations: {TotalOperations}, Success Rate: {OverallSuccessRate:F1}%, Avg Time: {AverageOperationTimeMs:F2}ms]";
-        }
-    }
-
-    /// <summary>
-    /// Category statistics
-    /// </summary>
-    public class CategoryStatistics
-    {
-        public int TotalOperations { get; set; }
-        public int SuccessfulOperations { get; set; }
-        public int FailedOperations { get; set; }
-        public double AverageTimeMs { get; set; }
-        public double SuccessRate { get; set; }
-    }
-
-    /// <summary>
-    /// Operation statistics
-    /// </summary>
-    public class OperationStatistics
-    {
-        public int TotalCalls { get; set; }
-        public int SuccessfulCalls { get; set; }
-        public int FailedCalls { get; set; }
-        public double AverageTimeMs { get; set; }
-        public double MinTimeMs { get; set; }
-        public double MaxTimeMs { get; set; }
-        public double SuccessRate { get; set; }
-    }
-
-    /// <summary>
-    /// Slow operation details
-    /// </summary>
-    public class SlowOperation
-    {
-        public string OperationName { get; set; } = string.Empty;
-        public string Category { get; set; } = string.Empty;
-        public TimeSpan Duration { get; set; }
-        public DateTime Timestamp { get; set; }
-    }
-
-    /// <summary>
-    /// Performance tracker utility for measuring operations
-    /// </summary>
-    public static class PerformanceTracker
-    {
-        /// <summary>
-        /// Start tracking an operation
-        /// </summary>
-        /// <param name="operationName">Operation name</param>
-        /// <param name="category">Operation category</param>
-        /// <returns>Disposable performance tracker</returns>
-        public static IDisposable StartOperation(string operationName, string category = "General")
-        {
-            return new OperationTracker(operationName, category);
-        }
-
-        /// <summary>
-        /// Track an async operation
-        /// </summary>
-        /// <param name="operationName">Operation name</param>
-        /// <param name="operation">Operation to track</param>
-        /// <param name="category">Operation category</param>
-        /// <returns>Operation result</returns>
-        public static async Task<T> TrackAsync<T>(string operationName, Func<Task<T>> operation, string category = "General")
-        {
-            using var tracker = StartOperation(operationName, category);
-            try
-            {
-                var result = await operation();
-                tracker.MarkSuccess();
-                return result;
-            }
-            catch
-            {
-                tracker.MarkFailure();
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// Track a synchronous operation
-        /// </summary>
-        /// <param name="operationName">Operation name</param>
-        /// <param name="operation">Operation to track</param>
-        /// <param name="category">Operation category</param>
-        /// <returns>Operation result</returns>
-        public static T Track<T>(string operationName, Func<T> operation, string category = "General")
-        {
-            using var tracker = StartOperation(operationName, category);
-            try
-            {
-                var result = operation();
-                tracker.MarkSuccess();
-                return result;
-            }
-            catch
-            {
-                tracker.MarkFailure();
-                throw;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Operation tracker implementation
-    /// </summary>
-    public class OperationTracker : IDisposable
-    {
-        private readonly string _operationName;
-        private readonly string _category;
-        private readonly DateTime _startTime;
-        private bool _success = true;
-        private bool _disposed = false;
-
-        public OperationTracker(string operationName, string category)
-        {
-            _operationName = operationName ?? throw new ArgumentNullException(nameof(operationName));
-            _category = category ?? "General";
-            _startTime = DateTime.UtcNow;
-        }
-
-        public void MarkSuccess()
-        {
-            _success = true;
-        }
-
-        public void MarkFailure()
-        {
-            _success = false;
-        }
-
-        public void Dispose()
-        {
-            if (!_disposed)
-            {
-                var duration = DateTime.UtcNow - _startTime;
-                PerformanceReportGenerator.RecordMetric(_operationName, duration, _category, _success);
-                _disposed = true;
             }
         }
     }

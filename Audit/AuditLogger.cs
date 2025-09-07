@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace SimpleDataEngine.Audit
 {
     /// <summary>
-    /// Static audit logger for application-wide logging - Eksik metodlar eklendi
+    /// Static audit logger for application-wide logging
     /// </summary>
     public static class AuditLogger
     {
@@ -46,25 +46,9 @@ namespace SimpleDataEngine.Audit
         }
 
         /// <summary>
-        /// Basic log method - string category overload for backward compatibility
-        /// </summary>
-        public static void Log(string eventType, object data = null, string category = "General")
-        {
-            // Convert string to AuditCategory enum
-            if (Enum.TryParse<AuditCategory>(category, true, out var auditCategory))
-            {
-                Log(eventType, data, auditCategory);
-            }
-            else
-            {
-                Log(eventType, data, AuditCategory.General);
-            }
-        }
-
-        /// <summary>
         /// Basic log method with proper enum
         /// </summary>
-        public static void Log(string message, object data = null, AuditCategory category = AuditCategory.General)
+        public static void Log(string message, object? data = null, AuditCategory category = AuditCategory.General)
         {
             var logEntry = new AuditLogEntry
             {
@@ -81,28 +65,9 @@ namespace SimpleDataEngine.Audit
         }
 
         /// <summary>
-        /// Async log method
+        /// Warning log method - MISSING METHOD ADDED
         /// </summary>
-        public static async Task LogAsync(string message, object data = null, AuditCategory category = AuditCategory.General)
-        {
-            var logEntry = new AuditLogEntry
-            {
-                Timestamp = DateTime.UtcNow,
-                Level = AuditLevel.Information,
-                Category = category,
-                Message = message,
-                Data = data,
-                ThreadId = Environment.CurrentManagedThreadId,
-                MachineName = Environment.MachineName
-            };
-
-            await WriteLogEntryAsync(logEntry);
-        }
-
-        /// <summary>
-        /// Warning log method - EKSIK OLAN METHOD
-        /// </summary>
-        public static void LogWarning(string message, object data = null, AuditCategory category = AuditCategory.General)
+        public static void LogWarning(string message, object? data = null, AuditCategory category = AuditCategory.General)
         {
             var logEntry = new AuditLogEntry
             {
@@ -119,24 +84,9 @@ namespace SimpleDataEngine.Audit
         }
 
         /// <summary>
-        /// Warning log method - string category overload
-        /// </summary>
-        public static void LogWarning(string eventType, object data, string category)
-        {
-            if (Enum.TryParse<AuditCategory>(category, true, out var auditCategory))
-            {
-                LogWarning(eventType, data, auditCategory);
-            }
-            else
-            {
-                LogWarning(eventType, data, AuditCategory.General);
-            }
-        }
-
-        /// <summary>
         /// Error log method
         /// </summary>
-        public static void LogError(string message, Exception exception = null, object data = null, AuditCategory category = AuditCategory.Error)
+        public static void LogError(string message, Exception? exception = null, object? data = null, AuditCategory category = AuditCategory.General)
         {
             var logEntry = new AuditLogEntry
             {
@@ -145,7 +95,7 @@ namespace SimpleDataEngine.Audit
                 Category = category,
                 Message = message,
                 Data = data,
-                Exception = exception?.ToString(),
+                Exception = exception,
                 ThreadId = Environment.CurrentManagedThreadId,
                 MachineName = Environment.MachineName
             };
@@ -154,83 +104,116 @@ namespace SimpleDataEngine.Audit
         }
 
         /// <summary>
-        /// Timed operation log method - EKSIK OLAN METHOD
+        /// Timed log method for performance tracking
         /// </summary>
-        public static void LogTimed(string operationName, TimeSpan duration, object data = null, AuditCategory category = AuditCategory.Performance)
+        public static void LogTimed(string message, TimeSpan duration, object? data = null, AuditCategory category = AuditCategory.Performance)
+        {
+            var enhancedData = new Dictionary<string, object>
+            {
+                ["Duration"] = duration.TotalMilliseconds,
+                ["DurationFormatted"] = $"{duration.TotalMilliseconds:F2}ms"
+            };
+
+            if (data != null)
+            {
+                enhancedData["Data"] = data;
+            }
+
+            var logEntry = new AuditLogEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                Level = AuditLevel.Information,
+                Category = category,
+                Message = message,
+                Data = enhancedData,
+                ThreadId = Environment.CurrentManagedThreadId,
+                MachineName = Environment.MachineName
+            };
+
+            WriteLogEntry(logEntry);
+        }
+
+        /// <summary>
+        /// Begin scope method - MISSING METHOD ADDED
+        /// </summary>
+        public static IDisposable BeginScope(string scopeName, object? data = null)
+        {
+            return new AuditScope(scopeName, data);
+        }
+
+        /// <summary>
+        /// Async log method
+        /// </summary>
+        public static async Task LogAsync(string message, object? data = null, AuditCategory category = AuditCategory.General)
         {
             var logEntry = new AuditLogEntry
             {
                 Timestamp = DateTime.UtcNow,
                 Level = AuditLevel.Information,
                 Category = category,
-                Message = $"Timed Operation: {operationName}",
-                Data = new
-                {
-                    OperationName = operationName,
-                    DurationMs = duration.TotalMilliseconds,
-                    Duration = duration.ToString(),
-                    AdditionalData = data
-                },
+                Message = message,
+                Data = data,
                 ThreadId = Environment.CurrentManagedThreadId,
                 MachineName = Environment.MachineName
             };
 
-            WriteLogEntry(logEntry);
+            await WriteLogEntryAsync(logEntry);
         }
 
         /// <summary>
-        /// Begin scope method - EKSIK OLAN METHOD
-        /// </summary>
-        public static IDisposable BeginScope(string scopeName, AuditCategory category = AuditCategory.General)
-        {
-            return new AuditScope(scopeName, category);
-        }
-
-        /// <summary>
-        /// Query audit logs method - EKSIK OLAN METHOD
+        /// Query audit logs - MISSING METHOD ADDED
         /// </summary>
         public static async Task<AuditQueryResult> QueryAsync(AuditQueryOptions options)
         {
-            var startTime = DateTime.UtcNow;
             var results = new List<AuditLogEntry>();
             var totalCount = 0;
+            var queryStart = DateTime.UtcNow;
 
             try
             {
-                // Query from all targets that support querying
-                foreach (var target in _targets)
+                // Query all queryable targets
+                var tasks = new List<Task<AuditQueryResult>>();
+
+                lock (_lock)
                 {
-                    if (target is IQueryableAuditTarget queryableTarget)
+                    foreach (var target in _targets.OfType<IQueryableAuditTarget>())
                     {
-                        var targetResults = await queryableTarget.QueryAsync(options);
-                        results.AddRange(targetResults.Entries);
-                        totalCount += targetResults.TotalCount;
+                        tasks.Add(target.QueryAsync(options));
                     }
                 }
 
-                // Apply sorting and pagination if needed
-                var orderedResults = results
-                    .OrderByDescending(x => x.Timestamp)
-                    .Take(options.Take ?? 100)
-                    .ToList();
+                if (tasks.Any())
+                {
+                    var queryResults = await Task.WhenAll(tasks);
+
+                    foreach (var result in queryResults.Where(r => r.Success))
+                    {
+                        results.AddRange(result.Entries);
+                        totalCount += result.TotalCount;
+                    }
+
+                    // Apply additional filtering and paging if needed
+                    if (options.Take.HasValue)
+                    {
+                        results = results.Take(options.Take.Value).ToList();
+                    }
+                }
 
                 return new AuditQueryResult
                 {
-                    Entries = orderedResults,
+                    Entries = results,
                     TotalCount = totalCount,
-                    QueryDuration = DateTime.UtcNow - startTime,
+                    QueryDuration = DateTime.UtcNow - queryStart,
                     Success = true
                 };
             }
             catch (Exception ex)
             {
-                LogError("Query operation failed", ex, new { Options = options });
-
                 return new AuditQueryResult
                 {
                     Entries = new List<AuditLogEntry>(),
                     TotalCount = 0,
-                    QueryDuration = DateTime.UtcNow - startTime,
+                    QueryDuration = DateTime.UtcNow - queryStart,
                     Success = false,
                     ErrorMessage = ex.Message
                 };
@@ -238,84 +221,60 @@ namespace SimpleDataEngine.Audit
         }
 
         /// <summary>
-        /// Flush all pending logs - EKSIK OLAN METHOD
+        /// Flush all targets - MISSING METHOD ADDED
         /// </summary>
         public static void Flush()
         {
-            try
+            lock (_lock)
             {
-                // Process any queued entries
-                while (_logQueue.TryDequeue(out var entry))
+                foreach (var target in _targets.OfType<IFlushable>())
                 {
-                    WriteLogEntry(entry);
+                    target.Flush();
                 }
-
-                // Flush all targets
-                foreach (var target in _targets)
-                {
-                    if (target is IFlushable flushableTarget)
-                    {
-                        flushableTarget.Flush();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[AUDIT ERROR] Failed to flush logs: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Async flush method
+        /// Flush all targets asynchronously
         /// </summary>
         public static async Task FlushAsync()
         {
-            try
+            var tasks = new List<Task>();
+
+            lock (_lock)
             {
-                // Process any queued entries
-                while (_logQueue.TryDequeue(out var entry))
+                foreach (var target in _targets.OfType<IAsyncFlushable>())
                 {
-                    await WriteLogEntryAsync(entry);
-                }
-
-                // Flush all targets
-                var flushTasks = _targets
-                    .OfType<IAsyncFlushable>()
-                    .Select(target => target.FlushAsync())
-                    .ToArray();
-
-                if (flushTasks.Any())
-                {
-                    await Task.WhenAll(flushTasks);
+                    tasks.Add(target.FlushAsync());
                 }
             }
-            catch (Exception ex)
+
+            if (tasks.Any())
             {
-                Console.WriteLine($"[AUDIT ERROR] Failed to flush logs: {ex.Message}");
+                await Task.WhenAll(tasks);
             }
         }
 
         /// <summary>
-        /// Get audit statistics - EKSIK OLAN METHOD
+        /// Get audit statistics
         /// </summary>
         public static async Task<AuditStatistics> GetStatisticsAsync()
         {
             var stats = new AuditStatistics
             {
-                TotalEntries = 0,
+                CollectionDate = DateTime.UtcNow,
                 EntriesByLevel = new Dictionary<AuditLevel, int>(),
-                EntriesByCategory = new Dictionary<AuditCategory, int>(),
-                AverageEntriesPerDay = 0,
-                CollectionDate = DateTime.UtcNow
+                EntriesByCategory = new Dictionary<AuditCategory, int>()
             };
 
             try
             {
-                foreach (var target in _targets)
+                lock (_lock)
                 {
-                    if (target is IStatisticsProvider statsProvider)
+                    foreach (var target in _targets.OfType<IStatisticsProvider>())
                     {
-                        var targetStats = await statsProvider.GetStatisticsAsync();
+                        var targetStats = target.GetStatisticsAsync().Result;
+
                         stats.TotalEntries += targetStats.TotalEntries;
 
                         // Merge level statistics
@@ -418,71 +377,5 @@ namespace SimpleDataEngine.Audit
                 }
             }
         }
-    }
-
-    /// <summary>
-    /// Supporting interfaces for audit functionality
-    /// </summary>
-    public interface ISyncAuditTarget
-    {
-        void Write(AuditLogEntry entry);
-    }
-
-    public interface IFlushable
-    {
-        void Flush();
-    }
-
-    public interface IAsyncFlushable
-    {
-        Task FlushAsync();
-    }
-
-    public interface IQueryableAuditTarget
-    {
-        Task<AuditQueryResult> QueryAsync(AuditQueryOptions options);
-    }
-
-    public interface IStatisticsProvider
-    {
-        Task<AuditStatistics> GetStatisticsAsync();
-    }
-
-    /// <summary>
-    /// Audit query options
-    /// </summary>
-    public class AuditQueryOptions
-    {
-        public DateTime? StartDate { get; set; }
-        public DateTime? EndDate { get; set; }
-        public AuditLevel? MinLevel { get; set; }
-        public AuditCategory[]? Categories { get; set; }
-        public string? SearchText { get; set; }
-        public int? Take { get; set; } = 100;
-        public int? Skip { get; set; } = 0;
-    }
-
-    /// <summary>
-    /// Audit query result
-    /// </summary>
-    public class AuditQueryResult
-    {
-        public List<AuditLogEntry> Entries { get; set; } = new();
-        public int TotalCount { get; set; }
-        public TimeSpan QueryDuration { get; set; }
-        public bool Success { get; set; }
-        public string? ErrorMessage { get; set; }
-    }
-
-    /// <summary>
-    /// Audit statistics
-    /// </summary>
-    public class AuditStatistics
-    {
-        public int TotalEntries { get; set; }
-        public Dictionary<AuditLevel, int> EntriesByLevel { get; set; } = new();
-        public Dictionary<AuditCategory, int> EntriesByCategory { get; set; } = new();
-        public double AverageEntriesPerDay { get; set; }
-        public DateTime CollectionDate { get; set; }
     }
 }

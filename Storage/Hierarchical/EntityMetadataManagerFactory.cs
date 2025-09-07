@@ -1,6 +1,4 @@
-﻿using SimpleDataEngine.Storage.Hierarchical.SimpleDataEngine.Storage.Hierarchical.Managers;
-
-namespace SimpleDataEngine.Storage.Hierarchical
+﻿namespace SimpleDataEngine.Storage.Hierarchical
 {
     /// <summary>
     /// EntityMetadataManager constructor düzeltmeleri

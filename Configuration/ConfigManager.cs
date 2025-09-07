@@ -7,7 +7,6 @@ namespace SimpleDataEngine.Configuration
     /// </summary>
     public static class ConfigManager
     {
-        private static readonly string ConfigPath = "engine-settings.json";
         private static EngineConfig _config;
         private static readonly object _lock = new object();
 
@@ -33,7 +32,7 @@ namespace SimpleDataEngine.Configuration
         /// <summary>
         /// Gets the configuration file path
         /// </summary>
-        public static string ConfigFilePath => ConfigPath;
+        public static string ConfigFilePath { get; } = "engine-settings.json";
 
         /// <summary>
         /// Loads configuration from file or creates default
@@ -42,9 +41,9 @@ namespace SimpleDataEngine.Configuration
         {
             try
             {
-                if (File.Exists(ConfigPath))
+                if (File.Exists(ConfigFilePath))
                 {
-                    var json = File.ReadAllText(ConfigPath);
+                    var json = File.ReadAllText(ConfigFilePath);
                     _config = JsonSerializer.Deserialize<EngineConfig>(json, new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true,
@@ -79,7 +78,7 @@ namespace SimpleDataEngine.Configuration
                         WriteIndented = true,
                         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
                     });
-                    File.WriteAllText(ConfigPath, json);
+                    File.WriteAllText(ConfigFilePath, json);
                 }
             }
             catch (Exception)

@@ -10,7 +10,6 @@ namespace SimpleDataEngine.Storage
     /// <typeparam name="T">Entity type</typeparam>
     public class SimpleStorage<T> : IQueryableStorage<T> where T : class
     {
-        private readonly string _filePath;
         private readonly object _lock = new object();
         private readonly JsonSerializerOptions _jsonOptions;
 
@@ -26,7 +25,7 @@ namespace SimpleDataEngine.Storage
             if (!Directory.Exists(directory))
                 Directory.CreateDirectory(directory);
 
-            _filePath = Path.Combine(directory, $"{entityName}.json");
+            FilePath = Path.Combine(directory, $"{entityName}.json");
 
             _jsonOptions = new JsonSerializerOptions
             {
@@ -42,9 +41,9 @@ namespace SimpleDataEngine.Storage
         /// <param name="filePath">Custom file path</param>
         public SimpleStorage(string filePath)
         {
-            _filePath = filePath;
+            FilePath = filePath;
 
-            var directory = Path.GetDirectoryName(_filePath);
+            var directory = Path.GetDirectoryName(FilePath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                 Directory.CreateDirectory(directory);
 
@@ -63,10 +62,10 @@ namespace SimpleDataEngine.Storage
             {
                 try
                 {
-                    if (!File.Exists(_filePath))
+                    if (!File.Exists(FilePath))
                         return new List<T>();
 
-                    var json = File.ReadAllText(_filePath);
+                    var json = File.ReadAllText(FilePath);
                     if (string.IsNullOrWhiteSpace(json))
                         return new List<T>();
 
@@ -88,11 +87,11 @@ namespace SimpleDataEngine.Storage
                 try
                 {
                     var json = JsonSerializer.Serialize(items, _jsonOptions);
-                    File.WriteAllText(_filePath, json);
+                    File.WriteAllText(FilePath, json);
                 }
                 catch (Exception ex)
                 {
-                    throw new InvalidOperationException($"Failed to save data to {_filePath}", ex);
+                    throw new InvalidOperationException($"Failed to save data to {FilePath}", ex);
                 }
             }
         }
@@ -140,7 +139,7 @@ namespace SimpleDataEngine.Storage
         /// <summary>
         /// Gets the file path used by this storage
         /// </summary>
-        public string FilePath => _filePath;
+        public string FilePath { get; }
 
         /// <summary>
         /// Gets the size of the storage file in bytes
@@ -151,7 +150,7 @@ namespace SimpleDataEngine.Storage
             {
                 try
                 {
-                    return File.Exists(_filePath) ? new FileInfo(_filePath).Length : 0;
+                    return File.Exists(FilePath) ? new FileInfo(FilePath).Length : 0;
                 }
                 catch
                 {
@@ -169,7 +168,7 @@ namespace SimpleDataEngine.Storage
             {
                 try
                 {
-                    return File.Exists(_filePath) ? File.GetLastWriteTime(_filePath) : null;
+                    return File.Exists(FilePath) ? File.GetLastWriteTime(FilePath) : null;
                 }
                 catch
                 {
@@ -181,7 +180,7 @@ namespace SimpleDataEngine.Storage
         /// <summary>
         /// Checks if the storage file exists
         /// </summary>
-        public bool FileExists => File.Exists(_filePath);
+        public bool FileExists => File.Exists(FilePath);
 
         /// <summary>
         /// Deletes the storage file
@@ -190,9 +189,9 @@ namespace SimpleDataEngine.Storage
         {
             lock (_lock)
             {
-                if (File.Exists(_filePath))
+                if (File.Exists(FilePath))
                 {
-                    File.Delete(_filePath);
+                    File.Delete(FilePath);
                 }
             }
         }
@@ -205,13 +204,13 @@ namespace SimpleDataEngine.Storage
         {
             lock (_lock)
             {
-                if (File.Exists(_filePath))
+                if (File.Exists(FilePath))
                 {
                     var destinationDir = Path.GetDirectoryName(destinationPath);
                     if (!string.IsNullOrEmpty(destinationDir) && !Directory.Exists(destinationDir))
                         Directory.CreateDirectory(destinationDir);
 
-                    File.Copy(_filePath, destinationPath, overwrite: true);
+                    File.Copy(FilePath, destinationPath, overwrite: true);
                 }
             }
         }
