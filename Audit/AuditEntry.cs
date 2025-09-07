@@ -1,43 +1,148 @@
 ﻿namespace SimpleDataEngine.Audit
 {
-
     /// <summary>
-    /// Individual audit log entry
+    /// Audit entry for query results - compatible with AuditLogEntry
     /// </summary>
     public class AuditEntry
     {
+        /// <summary>
+        /// Unique identifier for the audit entry
+        /// </summary>
         public Guid Id { get; set; } = Guid.NewGuid();
-        public DateTime Timestamp { get; set; } = DateTime.Now;
+
+        /// <summary>
+        /// When the audited event occurred
+        /// </summary>
+        public DateTime Timestamp { get; set; }
+
+        /// <summary>
+        /// Severity level of the audit entry
+        /// </summary>
         public AuditLevel Level { get; set; }
+
+        /// <summary>
+        /// Category of the audited operation
+        /// </summary>
         public AuditCategory Category { get; set; }
-        public string EventType { get; set; }
-        public string Message { get; set; }
-        public object Data { get; set; }
-        public string UserId { get; set; }
-        public string SessionId { get; set; }
-        public string MachineName { get; set; } = Environment.MachineName;
-        public string ApplicationName { get; set; } = "SimpleDataEngine";
-        public Exception Exception { get; set; }
-        public Dictionary<string, object> Properties { get; set; } = new();
-        public TimeSpan? Duration { get; set; }
-        public string Source { get; set; }
-        public string StackTrace { get; set; }
 
-        public bool IsError => Level == AuditLevel.Error || Level == AuditLevel.Critical;
-        public bool IsWarning => Level == AuditLevel.Warning;
-        public string FormattedMessage => FormatMessage();
+        /// <summary>
+        /// Audit message
+        /// </summary>
+        public string Message { get; set; } = string.Empty;
 
-        private string FormatMessage()
+        /// <summary>
+        /// Associated data (serialized as JSON)
+        /// </summary>
+        public string? Data { get; set; }
+
+        /// <summary>
+        /// Thread ID where the operation occurred
+        /// </summary>
+        public int ThreadId { get; set; }
+
+        /// <summary>
+        /// Machine name where the operation occurred
+        /// </summary>
+        public string MachineName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// User identifier
+        /// </summary>
+        public string? UserId { get; set; }
+
+        /// <summary>
+        /// Session identifier
+        /// </summary>
+        public string? SessionId { get; set; }
+
+        /// <summary>
+        /// Exception information (serialized)
+        /// </summary>
+        public string? ExceptionData { get; set; }
+
+        /// <summary>
+        /// Source file name (for debugging)
+        /// </summary>
+        public string? SourceFile { get; set; }
+
+        /// <summary>
+        /// Source line number (for debugging)
+        /// </summary>
+        public int? SourceLine { get; set; }
+
+        /// <summary>
+        /// Creates AuditEntry from AuditLogEntry
+        /// </summary>
+        public static AuditEntry FromLogEntry(AuditLogEntry logEntry)
         {
-            var formatted = $"[{Timestamp:yyyy-MM-dd HH:mm:ss.fff}] [{Level}] [{Category}] {EventType}";
+            return new AuditEntry
+            {
+                Timestamp = logEntry.Timestamp,
+                Level = logEntry.Level,
+                Category = logEntry.Category,
+                Message = logEntry.Message,
+                Data = logEntry.Data != null ? System.Text.Json.JsonSerializer.Serialize(logEntry.Data) : null,
+                ThreadId = logEntry.ThreadId,
+                MachineName = logEntry.MachineName,
+                UserId = logEntry.UserId,
+                SessionId = logEntry.SessionId,
+                ExceptionData = logEntry.Exception != null ? System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    Message = logEntry.Exception.Message,
+                    StackTrace = logEntry.Exception.StackTrace,
+                    Type = logEntry.Exception.GetType().Name
+                }) : null
+            };
+        }
 
-            if (!string.IsNullOrWhiteSpace(Message))
-                formatted += $": {Message}";
+        /// <summary>
+        /// Converts to AuditLogEntry
+        /// </summary>
+        public AuditLogEntry ToLogEntry()
+        {
+            var logEntry = new AuditLogEntry
+            {
+                Timestamp = Timestamp,
+                Level = Level,
+                Category = Category,
+                Message = Message,
+                ThreadId = ThreadId,
+                MachineName = MachineName,
+                UserId = UserId,
+                SessionId = SessionId
+            };
 
-            if (Duration.HasValue)
-                formatted += $" (Duration: {Duration.Value.TotalMilliseconds:F0}ms)";
+            // Deserialize data if present
+            if (!string.IsNullOrEmpty(Data))
+            {
+                try
+                {
+                    logEntry.Data = System.Text.Json.JsonSerializer.Deserialize<object>(Data);
+                }
+                catch
+                {
+                    logEntry.Data = Data; // Fallback to string
+                }
+            }
 
-            return formatted;
+            // Deserialize exception if present
+            if (!string.IsNullOrEmpty(ExceptionData))
+            {
+                try
+                {
+                    var exData = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(ExceptionData);
+                    if (exData != null && exData.ContainsKey("Message"))
+                    {
+                        logEntry.Exception = new Exception(exData["Message"].ToString());
+                    }
+                }
+                catch
+                {
+                    // Ignore deserialization errors
+                }
+            }
+
+            return logEntry;
         }
     }
 }

@@ -5,16 +5,39 @@
     /// </summary>
     public enum NotificationSeverity
     {
-        Info = 0,
-        Warning = 1,
-        Error = 2,
-        Critical = 3
-    }
-    /// <summary>
-    /// In-memory notification handler (default)
-    /// </summary>
+        /// <summary>
+        /// Informational message
+        /// </summary>
+        Information = 0,
 
-    /// <summary>
-    /// Extension methods for easier notification usage
-    /// </summary>
+        /// <summary>
+        /// Debug information (lowest priority)
+        /// </summary>
+        Debug = 1,
+
+        /// <summary>
+        /// Success notification
+        /// </summary>
+        Success = 2,
+
+        /// <summary>
+        /// Warning message
+        /// </summary>
+        Warning = 3,
+
+        /// <summary>
+        /// Error message
+        /// </summary>
+        Error = 4,
+
+        /// <summary>
+        /// Critical system error
+        /// </summary>
+        Critical = 5,
+
+        /// <summary>
+        /// Fatal system error
+        /// </summary>
+        Fatal = 6
+    }
 }
